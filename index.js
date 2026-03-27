@@ -275,7 +275,7 @@ io.on("connection", function(socket) {
 
       // Salva no historico como "human" e pausa o bot automaticamente
       var conv = await loadConversation(fullPhone);
-      addMessage(conv, "human", text);
+      await addMessage(conv, "human", text);
       // Quando humano envia pelo dashboard, pausa o bot para nao conflitar
       if (conv.botActive) {
         conv.botActive = false;

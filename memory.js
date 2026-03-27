@@ -2,7 +2,7 @@
 
 import fs from "fs";
 import path from "path";
-import { getPool } from "./db.js";
+import { getPool, getOrCreateSession, getSessionMessages, addSessionMessage } from "./db.js";
 
 var DATA_DIR = path.join(process.cwd(), "data", "conversations");
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -18,6 +18,7 @@ function newConversation(phone) {
   return {
     phone: sanitize(phone),
     contactNumber: null,
+    currentSessionId: null,  // ID da sessao ativa
     name: null, email: null, company: null, segment: null,
     pain: null, size: null, temperature: null,
     summary: null, infra: null, interest: null, scheduling: null,
@@ -89,15 +90,16 @@ export async function loadConversation(phone) {
     }
 
     var lead = rows[0];
-    var msgs = await conn.query(
-      "SELECT role, content, created_at FROM messages WHERE lead_id = ? ORDER BY created_at ASC",
-      [lead.id]
-    );
-    var messages = msgs.map(function(m) {
-      return { role: m.role, content: m.content, timestamp: new Date(m.created_at).toISOString() };
-    });
 
-    return rowToConv(lead, messages);
+    // Busca sessao ativa (ou cria nova)
+    var session = await getOrCreateSession(lead.id);
+
+    // Carrega apenas mensagens da sessao ativa
+    var messages = await getSessionMessages(session.id);
+
+    var conv = rowToConv(lead, messages);
+    conv.currentSessionId = session.id;
+    return conv;
   } catch (err) {
     console.error("⚠️ DB loadConversation fallback JSON:", err.message);
     var jsonConv = loadFromJson(phone);
@@ -183,26 +185,8 @@ export async function saveConversation(phone, conv) {
       conv.pausedAt ? isoToMysqlDatetime(conv.pausedAt) : null,
     ]);
 
-    // Pega o lead_id
-    var leadId = await getLeadIdByPhone(conn, phone);
-    if (!leadId) return;
-
-    // Conta msgs no DB e insere apenas as novas
-    var countResult = await conn.query("SELECT COUNT(*) as cnt FROM messages WHERE lead_id = ?", [leadId]);
-    var dbCount = Number(countResult[0].cnt);
-    var convCount = conv.messages.length;
-
-    if (convCount > dbCount) {
-      var newMsgs = conv.messages.slice(dbCount);
-      for (var i = 0; i < newMsgs.length; i++) {
-        var m = newMsgs[i];
-        var msgTimestamp = isoToMysqlDatetime(m.timestamp) || new Date().toISOString().slice(0, 19).replace('T', ' ');
-        await conn.query(
-          "INSERT INTO messages (lead_id, role, content, created_at) VALUES (?, ?, ?, ?)",
-          [leadId, m.role, m.content, msgTimestamp]
-        );
-      }
-    }
+    // Mensagens agora sao inseridas via addMessage/addSessionMessage
+    // (nao precisam ser inseridas aqui no saveConversation)
   } catch (err) {
     console.error("⚠️ DB saveConversation error:", err.message);
   } finally {
@@ -210,10 +194,21 @@ export async function saveConversation(phone, conv) {
   }
 }
 
-// ── ADD MESSAGE (in-memory only, persisted via saveConversation) ──
+// ── ADD MESSAGE (in-memory + DB session) ──
 
-export function addMessage(conv, role, content) {
-  conv.messages.push({ role: role, content: content, timestamp: new Date().toISOString() });
+export async function addMessage(conv, role, content) {
+  var timestamp = new Date().toISOString();
+  conv.messages.push({ role: role, content: content, timestamp: timestamp });
+
+  // Salva no banco da sessao se tiver sessionId
+  if (conv.currentSessionId) {
+    try {
+      await addSessionMessage(conv.currentSessionId, role, content);
+    } catch (e) {
+      console.error("Erro ao adicionar msg na sessao:", e.message);
+    }
+  }
+
   return conv;
 }
 

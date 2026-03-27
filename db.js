@@ -112,6 +112,34 @@ export async function initDb() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS sessions (
+        id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        lead_id         INT UNSIGNED    NOT NULL,
+        session_number  INT UNSIGNED    NOT NULL DEFAULT 1,
+        started_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        expires_at      DATETIME        NOT NULL,
+        status          ENUM('active','expired','closed') DEFAULT 'active',
+        INDEX idx_lead_active (lead_id, status),
+        INDEX idx_expires (expires_at),
+        CONSTRAINT fk_sessions_lead FOREIGN KEY (lead_id)
+          REFERENCES leads(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // Adiciona coluna session_id na tabela messages se nao existir
+    try {
+      await conn.query("ALTER TABLE messages ADD COLUMN session_id INT UNSIGNED");
+    } catch (e) {
+      // Coluna pode ja existir
+    }
+
+    try {
+      await conn.query("ALTER TABLE messages ADD CONSTRAINT fk_messages_session FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE SET NULL");
+    } catch (e) {
+      // Constraint pode ja existir
+    }
+
     console.log("✅ MariaDB conectado — banco uall_sdr pronto");
   } catch (err) {
     console.error("⚠️ MariaDB indisponivel:", err.message);
@@ -232,6 +260,95 @@ export async function getAccountInfo() {
     if (conn) conn.release();
   }
   return null;
+}
+
+// ── SESSIONS (24h) ──
+
+export async function getOrCreateSession(leadId, sessionDurationMs) {
+  var conn;
+  try {
+    sessionDurationMs = sessionDurationMs || 24 * 60 * 60 * 1000; // 24h default
+    var p = getPool();
+    conn = await p.getConnection();
+
+    // Busca sessao ativa
+    var rows = await conn.query(
+      "SELECT * FROM sessions WHERE lead_id = ? AND status = 'active' AND expires_at > NOW() ORDER BY started_at DESC LIMIT 1",
+      [leadId]
+    );
+
+    if (rows.length > 0) {
+      return rows[0];
+    }
+
+    // Marca sessoes expiradas
+    await conn.query(
+      "UPDATE sessions SET status = 'expired' WHERE lead_id = ? AND expires_at <= NOW() AND status = 'active'",
+      [leadId]
+    );
+
+    // Conta quantas sessoes ja existem (numero da sessao)
+    var countRows = await conn.query("SELECT COUNT(*) as cnt FROM sessions WHERE lead_id = ?", [leadId]);
+    var sessionNumber = (countRows[0].cnt || 0) + 1;
+
+    // Cria nova sessao
+    var expiresAt = new Date(Date.now() + sessionDurationMs).toISOString().slice(0, 19).replace('T', ' ');
+    var result = await conn.query(
+      "INSERT INTO sessions (lead_id, session_number, expires_at) VALUES (?, ?, ?)",
+      [leadId, sessionNumber, expiresAt]
+    );
+
+    return {
+      id: result.insertId,
+      lead_id: leadId,
+      session_number: sessionNumber,
+      started_at: new Date().toISOString(),
+      expires_at: expiresAt,
+      status: 'active'
+    };
+  } catch (err) {
+    console.error("⚠️ getOrCreateSession error:", err.message);
+    throw err;
+  } finally {
+    if (conn) conn.release();
+  }
+}
+
+export async function getSessionMessages(sessionId) {
+  var conn;
+  try {
+    var p = getPool();
+    conn = await p.getConnection();
+    var rows = await conn.query(
+      "SELECT role, content, created_at FROM messages WHERE session_id = ? ORDER BY created_at ASC",
+      [sessionId]
+    );
+    return rows.map(function(m) {
+      return { role: m.role, content: m.content, timestamp: new Date(m.created_at).toISOString() };
+    });
+  } catch (err) {
+    console.error("⚠️ getSessionMessages error:", err.message);
+    return [];
+  } finally {
+    if (conn) conn.release();
+  }
+}
+
+export async function addSessionMessage(sessionId, role, content) {
+  var conn;
+  try {
+    var p = getPool();
+    conn = await p.getConnection();
+    var msgTimestamp = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    await conn.query(
+      "INSERT INTO messages (session_id, role, content, created_at) VALUES (?, ?, ?, ?)",
+      [sessionId, role, content, msgTimestamp]
+    );
+  } catch (err) {
+    console.error("⚠️ addSessionMessage error:", err.message);
+  } finally {
+    if (conn) conn.release();
+  }
 }
 
 export async function closeDb() {
