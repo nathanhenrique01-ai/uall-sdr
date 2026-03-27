@@ -67,9 +67,10 @@ function loadFromJson(phone) {
 }
 
 function saveToJson(phone, conv) {
-  try {
-    fs.writeFileSync(fp(phone), JSON.stringify(conv, null, 2), "utf-8");
-  } catch (e) {}
+  // DESABILITADO: Agora tudo vai para MariaDB
+  // try {
+  //   fs.writeFileSync(fp(phone), JSON.stringify(conv, null, 2), "utf-8");
+  // } catch (e) {}
 }
 
 // ── LOAD ──

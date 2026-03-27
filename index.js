@@ -21,7 +21,7 @@ import {
 } from "./memory.js";
 import { HANDOFF_MESSAGE_TO_LEAD, HANDOFF_MESSAGE_TO_TEAM, AGENT_CONFIG } from "./config.js";
 import { startScheduledReports } from "./reports.js";
-import { initDb, closeDb, updateAccountInfo, getAccountInfo } from "./db.js";
+import { initDb, closeDb, updateAccountInfo, getAccountInfo, saveSessionData } from "./db.js";
 
 if (!process.env.OPENAI_API_KEY) {
   console.error("OPENAI_API_KEY nao configurada. Edite o arquivo .env");
@@ -371,6 +371,33 @@ function startWhatsApp() {
     state.whatsappStatus = "connected";
     state.qrDataUrl = null;
 
+    // Salva dados da sessao WhatsApp no banco
+    try {
+      var sessionDir = path.join(__dirname, "data", "whatsapp-session");
+      if (fs.existsSync(sessionDir)) {
+        var sessionFiles = fs.readdirSync(sessionDir);
+        var sessionData = {};
+        for (var i = 0; i < sessionFiles.length; i++) {
+          var file = sessionFiles[i];
+          if (file.endsWith(".json")) {
+            var filePath = path.join(sessionDir, file);
+            try {
+              var content = fs.readFileSync(filePath, "utf-8");
+              sessionData[file] = JSON.parse(content);
+            } catch (e) {
+              sessionData[file] = content; // se nao for JSON, salva como string
+            }
+          }
+        }
+        if (Object.keys(sessionData).length > 0) {
+          await saveSessionData("default", sessionData, null);
+          console.log("✅ Dados da sessao WhatsApp salvos no banco");
+        }
+      }
+    } catch (e) {
+      console.error("Erro ao salvar session data:", e.message);
+    }
+
     // Salva informacoes da conta no banco
     try {
       var info = await wpp.getWWebVersion();
@@ -432,20 +459,23 @@ function startWhatsApp() {
       if (message.to && message.to.endsWith("@g.us")) return;
 
       var phone = message.from;
+      var contactNumber = null;
+
+      // Busca o numero real do contato ANTES de tudo (pra normalizar a chave)
+      try {
+        var contact = await message.getContact();
+        if (contact && contact.number) {
+          contactNumber = contact.number;
+          // Normaliza: usa sempre o numero real como chave primaria
+          // Isso evita criar multiplos registros pra mesma pessoa
+          phone = contactNumber + "@c.us";
+        }
+      } catch (e) {}
 
       // Cacheia o chat pra poder responder depois (evita erro de LID)
       try {
         var chatObj = await message.getChat();
         if (chatObj) chatCache[phone] = chatObj;
-      } catch (e) {}
-
-      // Busca o numero real do contato
-      var contactNumber = null;
-      try {
-        var contact = await message.getContact();
-        if (contact && contact.number) {
-          contactNumber = contact.number;
-        }
       } catch (e) {}
 
       var body = message.body ? message.body.trim() : "";
