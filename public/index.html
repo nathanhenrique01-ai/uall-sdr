@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>U-All SDR Agent</title>
+<script src="/socket.io/socket.io.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{
+    --blue:#0066cc;--blue-dark:#004d99;--blue-light:#e8f2ff;--blue-glow:rgba(0,102,204,0.12);
+    --green:#25D366;--green-dark:#1da851;--orange:#f59e0b;--red:#ef4444;--purple:#8b5cf6;
+    --g50:#f8fafc;--g100:#f1f5f9;--g200:#e2e8f0;--g300:#cbd5e1;--g400:#94a3b8;
+    --g500:#64748b;--g600:#475569;--g700:#334155;--g800:#1e293b;--g900:#0f172a;
+    --radius:10px;--shadow:0 1px 3px rgba(0,0,0,0.06),0 1px 2px rgba(0,0,0,0.04);
+  }
+  body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--g50);color:var(--g800);min-height:100vh}
+
+  .topbar{background:var(--g900);color:white;padding:0 28px;height:56px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+  .topbar-left{display:flex;align-items:center;gap:14px}
+  .topbar-logo{font-size:18px;font-weight:700;letter-spacing:-0.3px}
+  .topbar-logo span{color:var(--blue)}
+  .topbar-badge{font-size:11px;font-weight:600;background:#10a37f;color:white;padding:3px 10px;border-radius:20px;letter-spacing:0.5px}
+  .topbar-right{display:flex;align-items:center;gap:10px}
+  .btn-sm{font-size:12px;font-weight:600;padding:6px 14px;border-radius:8px;border:none;cursor:pointer;transition:all 0.15s;display:none}
+  .btn-reconnect{background:var(--orange);color:white}
+  .btn-reconnect:hover{background:#d97706}
+  .btn-reset{background:var(--red);color:white}
+  .btn-reset:hover{background:#dc2626}
+  .btn-sm.visible{display:inline-block}
+  .status-pill{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500;padding:6px 14px;border-radius:20px;background:rgba(255,255,255,0.08)}
+  .status-dot{width:8px;height:8px;border-radius:50%;background:var(--g500)}
+  .status-dot.connected{background:var(--green);box-shadow:0 0 6px var(--green)}
+  .status-dot.qr{background:var(--orange);animation:pulse 1.5s infinite}
+  .status-dot.disconnected{background:var(--red)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+
+  .container{max-width:1440px;margin:0 auto;padding:24px 28px}
+
+  .qr-overlay{display:none;position:fixed;inset:0;background:rgba(15,23,42,0.8);backdrop-filter:blur(8px);z-index:200;justify-content:center;align-items:center}
+  .qr-overlay.active{display:flex}
+  .qr-card{background:white;border-radius:20px;padding:48px;text-align:center;box-shadow:0 25px 60px rgba(0,0,0,0.3);max-width:420px;width:90%}
+  .qr-card h2{font-size:20px;font-weight:700;margin-bottom:6px;color:var(--g900)}
+  .qr-card p{font-size:14px;color:var(--g500);margin-bottom:28px;line-height:1.5}
+  .qr-card img{border-radius:12px;border:3px solid var(--g100)}
+  .qr-steps{margin-top:24px;text-align:left;font-size:13px;color:var(--g600);line-height:2}
+  .qr-steps b{color:var(--g800)}
+
+  .stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
+  .stat-card{background:white;border-radius:var(--radius);padding:20px 24px;box-shadow:var(--shadow);border:1px solid var(--g200)}
+  .stat-card .label{font-size:12px;font-weight:600;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px}
+  .stat-card .value{font-size:32px;font-weight:700;color:var(--g900);line-height:1}
+  .stat-card.blue .value{color:var(--blue)}
+  .stat-card.green .value{color:var(--green-dark)}
+  .stat-card.purple .value{color:var(--purple)}
+
+  .main-grid{display:grid;grid-template-columns:380px 1fr;gap:20px;height:calc(100vh - 230px);min-height:460px}
+  .panel{background:white;border-radius:var(--radius);box-shadow:var(--shadow);border:1px solid var(--g200);display:flex;flex-direction:column;overflow:hidden}
+  .panel-header{padding:16px 20px;border-bottom:1px solid var(--g200);font-size:14px;font-weight:600;color:var(--g700);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+  .panel-body{flex:1;overflow-y:auto}
+
+  .lead-item{padding:14px 20px;border-bottom:1px solid var(--g100);cursor:pointer;transition:background 0.15s}
+  .lead-item:hover{background:var(--blue-glow)}
+  .lead-item.active{background:var(--blue-light);border-left:3px solid var(--blue)}
+  .lead-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+  .lead-phone{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:var(--g800)}
+  .lead-status{font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:0.3px}
+  .lead-status.active{background:#dbeafe;color:#1d4ed8}
+  .lead-status.handed_off{background:#dcfce7;color:#15803d}
+  .lead-status.paused{background:#f3e8ff;color:#7c3aed}
+  .lead-name{font-size:13px;color:var(--g500);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .lead-preview{font-size:12px;color:var(--g400);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  .empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--g400);font-size:14px;gap:8px;padding:40px;text-align:center}
+  .empty-icon{font-size:40px;opacity:0.4}
+
+  .conv-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--g400);gap:8px}
+  .conv-messages{padding:20px;display:flex;flex-direction:column;gap:10px}
+  .msg{max-width:75%;padding:10px 14px;border-radius:12px;font-size:14px;line-height:1.5}
+  .msg.lead{background:var(--g100);color:var(--g800);align-self:flex-start;border-bottom-left-radius:4px}
+  .msg.agent{background:var(--blue);color:white;align-self:flex-end;border-bottom-right-radius:4px}
+  .msg.human{background:var(--purple);color:white;align-self:flex-end;border-bottom-right-radius:4px}
+  .msg-meta{font-size:10px;opacity:0.6;margin-top:4px;display:flex;gap:6px;align-items:center}
+  .msg-sender{font-weight:600;opacity:0.8}
+  .conv-info-bar{padding:12px 20px;background:var(--g50);border-bottom:1px solid var(--g200);display:flex;gap:20px;flex-wrap:wrap;flex-shrink:0}
+  .conv-info-item{font-size:12px;color:var(--g500)}
+  .conv-info-item b{color:var(--g700);font-weight:600}
+
+  /* Barra de controle da conversa */
+  .conv-controls{padding:10px 20px;border-bottom:1px solid var(--g200);display:none;flex-shrink:0;gap:8px;align-items:center}
+  .conv-controls.visible{display:flex}
+  .btn-takeover{font-size:12px;font-weight:600;padding:6px 16px;border-radius:8px;border:none;cursor:pointer;transition:all 0.15s}
+  .btn-pause{background:var(--purple);color:white}
+  .btn-pause:hover{background:#7c3aed}
+  .btn-resume{background:var(--green);color:white}
+  .btn-resume:hover{background:var(--green-dark)}
+  .conv-status-tag{font-size:11px;font-weight:600;padding:4px 10px;border-radius:6px;margin-left:auto}
+  .conv-status-tag.bot{background:#dbeafe;color:#1d4ed8}
+  .conv-status-tag.human{background:#f3e8ff;color:#7c3aed}
+  .conv-status-tag.off{background:#dcfce7;color:#15803d}
+
+  /* Input de mensagem humana */
+  .msg-input-bar{padding:12px 20px;border-top:1px solid var(--g200);display:none;flex-shrink:0;gap:8px;align-items:center;background:var(--g50)}
+  .msg-input-bar.visible{display:flex}
+  .msg-input{flex:1;padding:10px 14px;border-radius:8px;border:1px solid var(--g300);font-size:14px;font-family:inherit;outline:none;transition:border 0.15s}
+  .msg-input:focus{border-color:var(--purple)}
+  .msg-input::placeholder{color:var(--g400)}
+  .btn-send{background:var(--purple);color:white;border:none;padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;transition:background 0.15s}
+  .btn-send:hover{background:#7c3aed}
+
+  .log-panel{margin-top:20px}
+  .log-body{max-height:180px;overflow-y:auto;padding:12px 16px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.9}
+  .log-line{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .log-line.in{color:var(--blue)}
+  .log-line.out{color:var(--green-dark)}
+  .log-line.handoff{color:var(--orange);font-weight:600}
+  .log-line.error{color:var(--red)}
+  .log-line.info{color:var(--g500)}
+
+  @media(max-width:860px){
+    .stats-row{grid-template-columns:repeat(2,1fr)}
+    .main-grid{grid-template-columns:1fr;height:auto}
+    .panel-body{max-height:360px}
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <div class="topbar-logo">U-All <span>SDR Agent</span></div>
+    <div class="topbar-badge">ChatGPT</div>
+  </div>
+  <div class="topbar-right">
+    <button class="btn-sm btn-reconnect" id="btnReconnect" onclick="socket.emit('reconnect-whatsapp')">Reconectar</button>
+    <button class="btn-sm btn-reset" id="btnReset" onclick="if(confirm('Gerar novo QR Code?')) socket.emit('reset-session')">Resetar Sessao</button>
+    <div class="status-pill">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="statusText">Conectando...</span>
+    </div>
+  </div>
+</div>
+
+<div class="qr-overlay" id="qrOverlay">
+  <div class="qr-card">
+    <h2>Conectar WhatsApp</h2>
+    <p>Escaneie o QR Code para ativar o agente SDR</p>
+    <img id="qrImage" src="" alt="QR Code" width="280" height="280">
+    <div class="qr-steps">
+      <b>1.</b> Abra o WhatsApp no celular<br>
+      <b>2.</b> Toque em <b>Dispositivos vinculados</b><br>
+      <b>3.</b> Toque em <b>Vincular dispositivo</b><br>
+      <b>4.</b> Aponte a camera para o QR Code
+    </div>
+  </div>
+</div>
+
+<div class="container">
+  <div class="stats-row">
+    <div class="stat-card"><div class="label">Total Leads</div><div class="value" id="statTotal">0</div></div>
+    <div class="stat-card blue"><div class="label">Bot Ativo</div><div class="value" id="statActive">0</div></div>
+    <div class="stat-card purple"><div class="label">Voce Assumiu</div><div class="value" id="statPaused">0</div></div>
+    <div class="stat-card green"><div class="label">Transferidos</div><div class="value" id="statHandedOff">0</div></div>
+  </div>
+
+  <div class="main-grid">
+    <div class="panel">
+      <div class="panel-header"><span>Leads</span><span id="leadsCount" style="color:var(--g400);font-weight:400;font-size:13px">0</span></div>
+      <div class="panel-body" id="leadsList">
+        <div class="empty-state"><div class="empty-icon">📭</div>Nenhum lead ainda.<br>Aguardando mensagens...</div>
+      </div>
+    </div>
+
+    <div class="panel" id="convPanel">
+      <div class="panel-header" id="convHeader"><span>Conversa</span></div>
+      <div class="conv-controls" id="convControls"></div>
+      <div class="conv-info-bar" id="convInfoBar" style="display:none"></div>
+      <div class="panel-body" id="convBody">
+        <div class="conv-empty"><div class="empty-icon">💬</div>Selecione um lead para ver a conversa</div>
+      </div>
+      <div class="msg-input-bar" id="msgInputBar">
+        <input type="text" class="msg-input" id="msgInput" placeholder="Digite sua mensagem..." onkeydown="if(event.key==='Enter')sendHumanMessage()">
+        <button class="btn-send" onclick="sendHumanMessage()">Enviar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel log-panel">
+    <div class="panel-header"><span>Log em tempo real</span></div>
+    <div class="log-body" id="logBody"><div style="color:var(--g400);font-style:italic">Aguardando atividade...</div></div>
+  </div>
+</div>
+
+<script>
+var socket = io();
+var selectedPhone = null;
+var selectedConv = null;
+
+// ── Status ──
+socket.on("status", function(s) {
+  var dot = document.getElementById("statusDot");
+  var text = document.getElementById("statusText");
+  var overlay = document.getElementById("qrOverlay");
+  var btnR = document.getElementById("btnReconnect");
+  var btnX = document.getElementById("btnReset");
+  dot.className = "status-dot " + s;
+  if (s === "connected") {
+    text.textContent = "WhatsApp Online";
+    overlay.classList.remove("active");
+    btnR.classList.remove("visible"); btnX.classList.remove("visible");
+  } else if (s === "qr") {
+    text.textContent = "Aguardando QR Code...";
+    overlay.classList.add("active");
+    btnR.classList.remove("visible"); btnX.classList.add("visible");
+  } else {
+    text.textContent = "Desconectado";
+    overlay.classList.remove("active");
+    btnR.classList.add("visible"); btnX.classList.add("visible");
+  }
+});
+
+socket.on("qr", function(url) { document.getElementById("qrImage").src = url; });
+
+// ── Stats ──
+socket.on("stats", function(s) {
+  document.getElementById("statTotal").textContent = s.total;
+  document.getElementById("statActive").textContent = s.active;
+  document.getElementById("statPaused").textContent = s.paused;
+  document.getElementById("statHandedOff").textContent = s.handedOff;
+});
+
+// ── Leads list ──
+socket.on("leads", function(leads) {
+  var el = document.getElementById("leadsList");
+  document.getElementById("leadsCount").textContent = leads.length;
+  if (!leads.length) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div>Nenhum lead ainda.<br>Aguardando mensagens...</div>';
+    return;
+  }
+  leads.sort(function(a,b) { return new Date(b.updatedAt) - new Date(a.updatedAt); });
+  el.innerHTML = leads.map(function(l) {
+    var phone = l.phone;
+    var realNum = l.contactNumber || phone;
+    var display = formatPhoneDisplay(realNum);
+    var name = l.name || l.company || "";
+    var preview = l.lastMessage ? l.lastMessage.substring(0,55) : "";
+    var active = selectedPhone === phone ? " active" : "";
+    var statusMap = {active:"Bot Ativo",handed_off:"Transferido",paused:"Voce"};
+    return '<div class="lead-item'+active+'" onclick="selectLead(\''+phone+'\')">' +
+      '<div class="lead-top"><span class="lead-phone">'+display+'</span>' +
+      '<span class="lead-status '+l.status+'">'+(statusMap[l.status]||l.status)+'</span></div>' +
+      (name ? '<div class="lead-name">'+esc(name)+(l.segment?" · "+esc(l.segment):"")+'</div>' : "") +
+      (preview ? '<div class="lead-preview">'+esc(preview)+'</div>' : "") +
+      '</div>';
+  }).join("");
+});
+
+function esc(s){var d=document.createElement("div");d.textContent=s;return d.innerHTML}
+
+function formatPhoneDisplay(num) {
+  if (!num) return "";
+  num = String(num).replace(/[^0-9]/g, "");
+  if (num.length >= 12 && num.length <= 13 && num.startsWith("55")) {
+    var ddd = num.substring(2, 4);
+    var numero = num.substring(4);
+    return "(" + ddd + ") " + numero.replace(/(\d{4,5})(\d{4})$/, "$1-$2");
+  }
+  return num.replace(/^55/,"").replace(/(\d{2})(\d{5})(\d{4})/,"($1) $2-$3");
+}
+
+// ── Select lead ──
+function selectLead(phone) {
+  selectedPhone = phone;
+  socket.emit("get-conversation", phone.includes("@c.us") ? phone : phone+"@c.us");
+  var items = document.querySelectorAll(".lead-item");
+  for (var i=0;i<items.length;i++) {
+    var oc = items[i].getAttribute("onclick")||"";
+    items[i].classList.toggle("active", oc.indexOf(phone)>-1);
+  }
+}
+
+// ── Conversation detail ──
+socket.on("conversation-detail", function(conv) {
+  selectedConv = conv;
+  var header = document.getElementById("convHeader");
+  var controls = document.getElementById("convControls");
+  var infoBar = document.getElementById("convInfoBar");
+  var body = document.getElementById("convBody");
+  var inputBar = document.getElementById("msgInputBar");
+
+  var phoneDisplay = formatPhoneDisplay(conv.contactNumber || conv.phone);
+  header.innerHTML = '<span>'+(conv.name||phoneDisplay)+'</span><span style="color:var(--g400);font-size:13px;font-weight:400">'+conv.messages.length+' msgs</span>';
+
+  // ── Barra de controle ──
+  controls.classList.add("visible");
+  if (conv.status === "handed_off") {
+    controls.innerHTML =
+      '<button class="btn-takeover btn-resume" onclick="resumeBot()">Reativar Bot</button>' +
+      '<span class="conv-status-tag off">Transferido para o comercial</span>';
+    inputBar.classList.add("visible");
+  } else if (conv.status === "paused" || !conv.botActive) {
+    controls.innerHTML =
+      '<button class="btn-takeover btn-resume" onclick="resumeBot()">Reativar Bot</button>' +
+      '<span class="conv-status-tag human">Voce esta respondendo</span>';
+    inputBar.classList.add("visible");
+  } else {
+    controls.innerHTML =
+      '<button class="btn-takeover btn-pause" onclick="pauseBot()">Assumir Conversa</button>';
+    inputBar.classList.remove("visible");
+  }
+
+  // ── Info bar ──
+  var infos = [];
+  if (conv.name) infos.push("<b>Nome:</b> "+esc(conv.name));
+  if (conv.company) infos.push("<b>Empresa:</b> "+esc(conv.company));
+  if (conv.segment) infos.push("<b>Segmento:</b> "+esc(conv.segment));
+  if (conv.pain||conv.interest) infos.push("<b>Interesse:</b> "+esc(conv.pain||conv.interest));
+  if (conv.infra) infos.push("<b>Infra:</b> "+esc(conv.infra));
+  if (conv.size) infos.push("<b>Porte:</b> "+esc(conv.size));
+  if (conv.temperature) infos.push("<b>Temp:</b> "+esc(conv.temperature));
+  if (infos.length) {
+    infoBar.style.display = "flex";
+    infoBar.innerHTML = infos.map(function(i){return '<div class="conv-info-item">'+i+'</div>';}).join("");
+  } else { infoBar.style.display = "none"; }
+
+  // ── Mensagens ──
+  if (!conv.messages||!conv.messages.length) {
+    body.innerHTML = '<div class="conv-empty"><div class="empty-icon">💬</div>Sem mensagens</div>';
+    return;
+  }
+  body.innerHTML = '<div class="conv-messages">' + conv.messages.map(function(m) {
+    var time = new Date(m.timestamp).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+    var role = m.role === "lead" ? "lead" : (m.role === "human" ? "human" : "agent");
+    var sender = m.role === "human" ? "Voce" : (m.role === "agent" ? "Bot" : "");
+    return '<div class="msg '+role+'">'+esc(m.content)+
+      '<div class="msg-meta">'+(sender?'<span class="msg-sender">'+sender+'</span>':'')+
+      '<span>'+time+'</span></div></div>';
+  }).join("") + '</div>';
+  body.scrollTop = body.scrollHeight;
+});
+
+// ── Real-time message update (sem recarregar tudo) ──
+socket.on("conversation-update", function(data) {
+  if (selectedPhone === data.phone) {
+    socket.emit("get-conversation", data.phone.includes("@c.us") ? data.phone : data.phone+"@c.us");
+  }
+});
+
+// ── Takeover actions ──
+function pauseBot() {
+  if (!selectedPhone) return;
+  var phone = selectedPhone.includes("@c.us") ? selectedPhone : selectedPhone+"@c.us";
+  socket.emit("pause-bot", phone);
+}
+
+function resumeBot() {
+  if (!selectedPhone) return;
+  var phone = selectedPhone.includes("@c.us") ? selectedPhone : selectedPhone+"@c.us";
+  socket.emit("resume-bot", phone);
+}
+
+function sendHumanMessage() {
+  var input = document.getElementById("msgInput");
+  var text = input.value.trim();
+  if (!text || !selectedPhone) return;
+  var phone = selectedPhone.includes("@c.us") ? selectedPhone : selectedPhone+"@c.us";
+  // Feedback visual imediato
+  var body = document.getElementById("convBody");
+  if (body) {
+    var now = new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+    body.innerHTML += '<div class="msg-row human"><div class="msg-bubble human">' +
+      '<div class="msg-meta"><span class="msg-sender">Voce</span><span class="msg-time">' + now + '</span></div>' +
+      '<div class="msg-text">' + esc(text) + '</div></div></div>';
+    body.scrollTop = body.scrollHeight;
+  }
+  socket.emit("send-human-message", { phone: phone, text: text });
+  input.value = "";
+  input.focus();
+}
+
+// ── Log ──
+var logLines = [];
+socket.on("log", function(entry) {
+  logLines.push(entry);
+  if (logLines.length > 100) logLines.shift();
+  var el = document.getElementById("logBody");
+  el.innerHTML = logLines.map(function(l) {
+    return '<div class="log-line '+l.type+'">'+esc(l.text)+'</div>';
+  }).join("");
+  el.scrollTop = el.scrollHeight;
+  socket.emit("get-leads");
+});
+</script>
+</body>
+</html>

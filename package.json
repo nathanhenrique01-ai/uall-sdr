@@ -1,0 +1,20 @@
+{
+  "name": "uall-sdr-agent",
+  "version": "2.0.0",
+  "description": "Agente SDR com IA para WhatsApp - U-All Solutions",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.1",
+    "node-cron": "^4.2.1",
+    "openai": "^4.73.1",
+    "qrcode": "^1.5.4",
+    "socket.io": "^4.8.1",
+    "whatsapp-web.js": "^1.26.0"
+  }
+}
