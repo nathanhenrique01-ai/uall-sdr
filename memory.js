@@ -108,6 +108,24 @@ export async function loadConversation(phone) {
   }
 }
 
+// ── HELPERS ──
+
+function isoToMysqlDatetime(isoString) {
+  if (!isoString) return null;
+  try {
+    var date = new Date(isoString);
+    var year = date.getUTCFullYear();
+    var month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    var day = String(date.getUTCDate()).padStart(2, '0');
+    var hours = String(date.getUTCHours()).padStart(2, '0');
+    var minutes = String(date.getUTCMinutes()).padStart(2, '0');
+    var seconds = String(date.getUTCSeconds()).padStart(2, '0');
+    return year + '-' + month + '-' + day + ' ' + hours + ':' + minutes + ':' + seconds;
+  } catch (e) {
+    return null;
+  }
+}
+
 // ── SAVE ──
 
 export async function saveConversation(phone, conv) {
@@ -160,9 +178,9 @@ export async function saveConversation(phone, conv) {
       conv.status || "active",
       conv.botActive ? 1 : 0,
       conv.agentExchanges || 0,
-      conv.createdAt || new Date().toISOString(),
-      conv.handedOffAt || null,
-      conv.pausedAt || null,
+      isoToMysqlDatetime(conv.createdAt) || new Date().toISOString().slice(0, 19).replace('T', ' '),
+      conv.handedOffAt ? isoToMysqlDatetime(conv.handedOffAt) : null,
+      conv.pausedAt ? isoToMysqlDatetime(conv.pausedAt) : null,
     ]);
 
     // Pega o lead_id
@@ -178,9 +196,10 @@ export async function saveConversation(phone, conv) {
       var newMsgs = conv.messages.slice(dbCount);
       for (var i = 0; i < newMsgs.length; i++) {
         var m = newMsgs[i];
+        var msgTimestamp = isoToMysqlDatetime(m.timestamp) || new Date().toISOString().slice(0, 19).replace('T', ' ');
         await conn.query(
           "INSERT INTO messages (lead_id, role, content, created_at) VALUES (?, ?, ?, ?)",
-          [leadId, m.role, m.content, m.timestamp || new Date().toISOString()]
+          [leadId, m.role, m.content, msgTimestamp]
         );
       }
     }
