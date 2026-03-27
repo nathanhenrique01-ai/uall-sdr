@@ -21,7 +21,7 @@ import {
 } from "./memory.js";
 import { HANDOFF_MESSAGE_TO_LEAD, HANDOFF_MESSAGE_TO_TEAM, AGENT_CONFIG } from "./config.js";
 import { startScheduledReports } from "./reports.js";
-import { initDb, closeDb, updateAccountInfo, getAccountInfo, saveSessionData } from "./db.js";
+import { initDb, closeDb, updateAccountInfo, getAccountInfo, saveSessionData, saveLog } from "./db.js";
 
 if (!process.env.OPENAI_API_KEY) {
   console.error("OPENAI_API_KEY nao configurada. Edite o arquivo .env");
@@ -105,6 +105,15 @@ var closeTimers = {};
 
 // Cache de chats — salva o chat object quando recebe msg pra poder responder depois
 var chatCache = {};
+
+// Função de logging que salva no banco e emite pro dashboard
+function emitLog(type, text, phone) {
+  io.emit("log", { type: type, text: text });
+  // Salva no banco de forma não-bloqueante (fire-and-forget)
+  saveLog(type, text, phone).catch(function(e) {
+    // Silencia erros de log
+  });
+}
 
 // Envia mensagem de forma segura — usa cache de chat pra evitar erro de LID
 async function safeSendMessage(wppClient, phone, text) {
@@ -422,7 +431,7 @@ function startWhatsApp() {
   wpp.on("auth_failure", function() {
     state.whatsappStatus = "disconnected";
     io.emit("status", "disconnected");
-    io.emit("log", { type: "error", text: "Falha na autenticacao. Clique em 'Resetar Sessao'." });
+    emitLog("error", "Falha na autenticacao. Clique em 'Resetar Sessao'."));
     try {
       fs.mkdirSync(path.join(__dirname, "data"), { recursive: true });
       fs.writeFileSync(CLEAN_FLAG, "1");
@@ -440,10 +449,10 @@ function startWhatsApp() {
 
     io.emit("status", "disconnected");
     if (reason === "LOGOUT") {
-      io.emit("log", { type: "error", text: "WhatsApp deslogado. Clique em 'Reconectar'." });
+      emitLog("error", "WhatsApp deslogado. Clique em 'Reconectar'."));
       try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch (e) {}
     } else {
-      io.emit("log", { type: "info", text: "Conexao perdida. Reconectando em 10s..." });
+      emitLog("info", "Conexao perdida. Reconectando em 10s..."));
       setTimeout(function() { startWhatsApp(); }, 10000);
     }
   });

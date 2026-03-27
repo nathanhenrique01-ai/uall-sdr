@@ -147,6 +147,19 @@ export async function initDb() {
       // Pode ja estar nullable
     }
 
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS logs (
+        id              BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        timestamp       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        type            VARCHAR(50)     NOT NULL,
+        phone           VARCHAR(50)     DEFAULT NULL,
+        text            TEXT            NOT NULL,
+        INDEX idx_timestamp (timestamp),
+        INDEX idx_type (type),
+        INDEX idx_phone (phone)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
     console.log("✅ MariaDB conectado — banco uall_sdr pronto");
   } catch (err) {
     console.error("⚠️ MariaDB indisponivel:", err.message);
@@ -353,6 +366,64 @@ export async function addSessionMessage(sessionId, role, content) {
     );
   } catch (err) {
     console.error("⚠️ addSessionMessage error:", err.message);
+  } finally {
+    if (conn) conn.release();
+  }
+}
+
+// ── LOGS ──
+
+export async function saveLog(type, text, phone) {
+  var conn;
+  try {
+    var p = getPool();
+    conn = await p.getConnection();
+    await conn.query(
+      "INSERT INTO logs (type, text, phone) VALUES (?, ?, ?)",
+      [type, text, phone || null]
+    );
+  } catch (err) {
+    // Silencia erros de log para não poluir console
+  } finally {
+    if (conn) conn.release();
+  }
+}
+
+export async function getLogs(limit, type, phone) {
+  var conn;
+  try {
+    limit = limit || 100;
+    var p = getPool();
+    conn = await p.getConnection();
+
+    var query = "SELECT * FROM logs WHERE 1=1";
+    var params = [];
+
+    if (type) {
+      query += " AND type = ?";
+      params.push(type);
+    }
+    if (phone) {
+      query += " AND phone = ?";
+      params.push(phone);
+    }
+
+    query += " ORDER BY timestamp DESC LIMIT ?";
+    params.push(limit);
+
+    var rows = await conn.query(query, params);
+    return rows.map(function(r) {
+      return {
+        id: r.id,
+        timestamp: new Date(r.timestamp).toISOString(),
+        type: r.type,
+        phone: r.phone,
+        text: r.text
+      };
+    });
+  } catch (err) {
+    console.error("⚠️ getLogs error:", err.message);
+    return [];
   } finally {
     if (conn) conn.release();
   }
