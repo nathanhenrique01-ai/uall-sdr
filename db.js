@@ -1,6 +1,6 @@
 // db.js — Conexao MariaDB + schema auto-provisioning
 
-import mariadb from "mariadb";
+import * as mariadb from "mariadb";
 
 var pool = null;
 
@@ -20,6 +20,26 @@ export function getPool() {
 }
 
 export async function initDb() {
+  // Primeiro cria o banco se nao existir (conecta sem especificar database)
+  var tempPool = null;
+  try {
+    tempPool = mariadb.createPool({
+      host: process.env.DB_HOST || "localhost",
+      port: parseInt(process.env.DB_PORT || "3306"),
+      user: process.env.DB_USER || "root",
+      password: process.env.DB_PASS || "root",
+      connectionLimit: 1,
+    });
+    var tempConn = await tempPool.getConnection();
+    var dbName = process.env.DB_NAME || "uall_sdr";
+    await tempConn.query("CREATE DATABASE IF NOT EXISTS `" + dbName + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+    tempConn.release();
+    await tempPool.end();
+  } catch (e) {
+    console.error("⚠️ Nao foi possivel criar o banco:", e.message);
+    if (tempPool) try { await tempPool.end(); } catch (x) {}
+  }
+
   var p = getPool();
   var conn;
   try {
