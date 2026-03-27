@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmd.exe /c \"FOR /F \"\"tokens=5\"\" %a IN \\(''netstat -ano ^| findstr :3000 ^| findstr LISTENING''\\) DO taskkill /F /PID %a\")",
+      "Bash(cmd.exe /c \"taskkill /F /IM node.exe\")",
+      "Bash(netstat -ano)",
+      "Bash(powershell -Command 'Stop-Process -Id 25460 -Force')",
+      "Bash(where gh:*)",
+      "Bash(xargs -I{} cat \"C:/Users/natha/Desktop/uall-sdr-agent/data/conversations/{}\")",
+      "Bash(npm install:*)",
+      "Bash(mysql -u root -proot -e \"SELECT 1\")",
+      "Bash(where mysql:*)",
+      "Read(//c/Program Files/**)",
+      "Read(//c/xampp/mysql/bin/**)",
+      "Read(//c/laragon/**)",
+      "Bash(\"C:/Program Files/MariaDB 12.2/bin/mysql.exe\" -u root -proot -e \"CREATE DATABASE IF NOT EXISTS uall_sdr CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\")",
+      "Bash(mysql -u root -proot -e \"CREATE DATABASE IF NOT EXISTS uall_sdr CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\")",
+      "Bash(mysql -u root -proot -e \"SHOW TABLES FROM uall_sdr;\")",
+      "Bash(where mariadb:*)",
+      "Bash(ls \"C:/Program Files/MariaDB\"*/bin/mysql.exe)",
+      "Bash(ls \"C:/Program Files/MariaDB\"*/bin/mariadb.exe)",
+      "Bash(node -e \"import\\(''./db.js''\\).then\\(m => m.initDb\\(\\).then\\(\\(\\) => { console.log\\(''done''\\); process.exit\\(0\\); }\\)\\)\")",
+      "Bash(\"C:/Program Files/MariaDB 12.2/bin/mysql.exe\" -u root -proot -e \"SHOW TABLES FROM uall_sdr; DESCRIBE uall_sdr.leads; DESCRIBE uall_sdr.messages;\")"
+    ]
+  }
+}

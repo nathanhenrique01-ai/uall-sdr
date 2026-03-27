@@ -21,7 +21,7 @@ import {
 } from "./memory.js";
 import { HANDOFF_MESSAGE_TO_LEAD, HANDOFF_MESSAGE_TO_TEAM, AGENT_CONFIG } from "./config.js";
 import { startScheduledReports } from "./reports.js";
-import { initDb, closeDb } from "./db.js";
+import { initDb, closeDb, updateAccountInfo, getAccountInfo } from "./db.js";
 
 if (!process.env.OPENAI_API_KEY) {
   console.error("OPENAI_API_KEY nao configurada. Edite o arquivo .env");
@@ -341,16 +341,45 @@ function startWhatsApp() {
     console.log("QR Code gerado");
     state.whatsappStatus = "qr";
     state.qrDataUrl = await QRCode.toDataURL(qr, { width: 280, margin: 2 });
+
+    // Salva o QR code no banco
+    try {
+      await updateAccountInfo({
+        qrCode: qr,
+        status: 'authenticating'
+      });
+    } catch (e) {
+      console.error("Erro ao salvar QR code:", e.message);
+    }
+
     io.emit("status", "qr");
     io.emit("qr", state.qrDataUrl);
   });
 
   wpp.on("authenticated", function() { console.log("WhatsApp autenticado"); });
 
-  wpp.on("ready", function() {
+  wpp.on("ready", async function() {
     console.log("WhatsApp ONLINE");
     state.whatsappStatus = "connected";
     state.qrDataUrl = null;
+
+    // Salva informacoes da conta no banco
+    try {
+      var info = await wpp.getWWebVersion();
+      var me = await wpp.getContactById(wpp.info.wid._serialized);
+      await updateAccountInfo({
+        name: me && me.name ? me.name : "WhatsApp",
+        phone: me && me.number ? me.number : null,
+        status: 'ready'
+      });
+      console.log("✅ Informacoes da conta salvas no banco");
+    } catch (e) {
+      console.error("Erro ao salvar account info:", e.message);
+      try {
+        await updateAccountInfo({ status: 'ready' });
+      } catch (e2) {}
+    }
+
     io.emit("status", "connected");
     broadcastUpdate();
   });
@@ -365,9 +394,15 @@ function startWhatsApp() {
     } catch (e) {}
   });
 
-  wpp.on("disconnected", function(reason) {
+  wpp.on("disconnected", async function(reason) {
     console.log("Desconectado:", reason);
     state.whatsappStatus = "disconnected";
+
+    // Salva status desconectado no banco
+    try {
+      await updateAccountInfo({ status: 'disconnected' });
+    } catch (e) {}
+
     io.emit("status", "disconnected");
     if (reason === "LOGOUT") {
       io.emit("log", { type: "error", text: "WhatsApp deslogado. Clique em 'Reconectar'." });
@@ -426,10 +461,21 @@ function startWhatsApp() {
       io.emit("log", { type: "in", text: "[" + ts + "] " + shortPhone + ": " + body });
 
       var conv = await loadConversation(phone);
+      var isFirstMessage = conv.messages.length === 0;
 
       // Salva o numero real do contato (diferente do ID interno do WhatsApp)
       if (contactNumber && !conv.contactNumber) {
         conv.contactNumber = contactNumber;
+      }
+
+      // ── AUTO-SAVE: Salva o lead no banco imediatamente na primeira mensagem ──
+      if (isFirstMessage) {
+        try {
+          await saveConversation(phone, conv);
+          io.emit("log", { type: "info", text: "[" + ts + "] 📌 Novo lead criado no banco: " + shortPhone });
+        } catch (e) {
+          console.error("Erro ao salvar novo lead:", e.message);
+        }
       }
 
       // ── Reset por inatividade (30 min) ──
