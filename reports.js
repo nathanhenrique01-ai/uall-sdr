@@ -4,23 +4,14 @@ import cron from "node-cron";
 import fs from "fs";
 import path from "path";
 import OpenAI from "openai";
-
-var DATA_DIR = path.join(process.cwd(), "data", "conversations");
+import { loadAllConversations as loadAllConvsFromDb } from "./memory.js";
 
 var openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-function loadAllConversations() {
-  if (!fs.existsSync(DATA_DIR)) return [];
-  var files = fs.readdirSync(DATA_DIR).filter(function(f) { return f.endsWith(".json"); });
-  return files.map(function(f) {
-    return JSON.parse(fs.readFileSync(path.join(DATA_DIR, f), "utf-8"));
-  });
-}
-
-function getLast24hData() {
+async function getLast24hData() {
   var now = new Date();
   var cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  var all = loadAllConversations();
+  var all = await loadAllConvsFromDb();
 
   var total24h = 0;
   var qualified = 0;
@@ -106,8 +97,8 @@ function getLast24hData() {
   };
 }
 
-function buildDailyReport() {
-  var d = getLast24hData();
+async function buildDailyReport() {
+  var d = await getLast24hData();
   var now = new Date();
   var dateStr = now.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
 
@@ -171,8 +162,8 @@ function buildDailyReport() {
 }
 
 async function buildImprovementReport() {
-  var d = getLast24hData();
-  var all = loadAllConversations();
+  var d = await getLast24hData();
+  var all = await loadAllConvsFromDb();
   var now = new Date();
   var cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
@@ -263,7 +254,7 @@ export function startScheduledReports(wppGetter, groupFinder, ioRef) {
         return;
       }
 
-      var report = buildDailyReport();
+      var report = await buildDailyReport();
       await wpp.sendMessage(groupId, report);
       ioRef.emit("log", { type: "info", text: "[" + ts + "] ✅ Relatório diário enviado para o grupo" });
       console.log("Relatorio diario enviado!");
@@ -311,7 +302,7 @@ export function startScheduledReports(wppGetter, groupFinder, ioRef) {
       var groupId = await groupFinder(wpp);
       if (!groupId) return;
 
-      var all = loadAllConversations();
+      var all = await loadAllConvsFromDb();
       var now = Date.now();
       var inactivityMs = 20 * 60 * 1000; // 20 min
       var staleLeads = [];

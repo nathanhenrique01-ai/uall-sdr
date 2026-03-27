@@ -21,6 +21,7 @@ import {
 } from "./memory.js";
 import { HANDOFF_MESSAGE_TO_LEAD, HANDOFF_MESSAGE_TO_TEAM, AGENT_CONFIG } from "./config.js";
 import { startScheduledReports } from "./reports.js";
+import { initDb, closeDb } from "./db.js";
 
 if (!process.env.OPENAI_API_KEY) {
   console.error("OPENAI_API_KEY nao configurada. Edite o arquivo .env");
@@ -29,6 +30,60 @@ if (!process.env.OPENAI_API_KEY) {
 
 var __dirname = path.dirname(fileURLToPath(import.meta.url));
 var PORT = process.env.PORT || 3000;
+
+// Mata qualquer processo que esteja usando a mesma porta antes de iniciar
+function killPort(port) {
+  return new Promise(function(resolve) {
+    if (process.platform === "win32") {
+      // Usa PowerShell que e mais confiavel que netstat+findstr no Windows
+      var psCmd = 'powershell -Command "Get-NetTCPConnection -LocalPort ' + port + ' -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess"';
+      exec(psCmd, function(err, stdout) {
+        if (err || !stdout.trim()) {
+          // Fallback: tenta netstat
+          exec('netstat -ano | findstr :' + port, function(err2, stdout2) {
+            if (err2 || !stdout2.trim()) return resolve();
+            var lines = stdout2.trim().split("\n");
+            var pids = [];
+            for (var i = 0; i < lines.length; i++) {
+              if (lines[i].indexOf("LISTENING") === -1) continue;
+              var parts = lines[i].trim().split(/\s+/);
+              var pid = parts[parts.length - 1];
+              if (pid && pid !== "0" && pid !== String(process.pid) && pids.indexOf(pid) === -1) {
+                pids.push(pid);
+              }
+            }
+            if (pids.length === 0) return resolve();
+            exec('taskkill /F /PID ' + pids.join(' /PID '), function() {
+              console.log("⚠️ Processo anterior na porta " + port + " encerrado (PIDs: " + pids.join(", ") + ")");
+              setTimeout(resolve, 1500);
+            });
+          });
+          return;
+        }
+        var pids = stdout.trim().split("\n").map(function(p) { return p.trim(); }).filter(function(p) {
+          return p && p !== "0" && p !== String(process.pid);
+        });
+        // Remove duplicatas
+        pids = pids.filter(function(v, i, a) { return a.indexOf(v) === i; });
+        if (pids.length === 0) return resolve();
+        exec('taskkill /F /PID ' + pids.join(' /PID '), function() {
+          console.log("⚠️ Processo anterior na porta " + port + " encerrado (PIDs: " + pids.join(", ") + ")");
+          setTimeout(resolve, 1500);
+        });
+      });
+    } else {
+      exec('lsof -ti:' + port, function(err, stdout) {
+        if (err || !stdout.trim()) return resolve();
+        var pids = stdout.trim().split("\n").filter(function(p) { return p && p !== String(process.pid); });
+        if (pids.length === 0) return resolve();
+        exec('kill -9 ' + pids.join(" "), function() {
+          console.log("⚠️ Processo anterior na porta " + port + " foi encerrado");
+          setTimeout(resolve, 1000);
+        });
+      });
+    }
+  });
+}
 
 var SESSION_DIR = path.join(__dirname, "data", "whatsapp-session");
 var CLEAN_FLAG = path.join(__dirname, "data", ".clean-session");
@@ -47,6 +102,95 @@ var io = new Server(server);
 var followUpTimers = {};
 // Timers de encerramento (fecha conversa apos 30 min sem resposta)
 var closeTimers = {};
+
+// Cache de chats — salva o chat object quando recebe msg pra poder responder depois
+var chatCache = {};
+
+// Envia mensagem de forma segura — usa cache de chat pra evitar erro de LID
+async function safeSendMessage(wppClient, phone, text) {
+  // 1. Tenta usar o chat cacheado (mais confiavel — pega o chat real do WhatsApp)
+  if (chatCache[phone]) {
+    try {
+      await chatCache[phone].sendMessage(text);
+      return;
+    } catch (e) {
+      console.log("⚠️ Chat cache falhou para " + phone + ": " + e.message);
+      // Cache pode estar stale, tenta re-buscar
+      try {
+        var freshChat = await wppClient.getChatById(chatCache[phone].id._serialized);
+        if (freshChat) {
+          chatCache[phone] = freshChat;
+          await freshChat.sendMessage(text);
+          return;
+        }
+      } catch (e2) {}
+    }
+  }
+
+  // 2. Tenta envio direto (funciona pra numeros normais @c.us)
+  try {
+    await wppClient.sendMessage(phone, text);
+    return;
+  } catch (err) {
+    if (!err.message || !err.message.includes("No LID")) throw err;
+    console.log("⚠️ LID error para " + phone + ", tentando alternativas...");
+  }
+
+  // 3. Busca o chat pela lista de chats recentes (mais abrangente)
+  var rawNum = phone.replace("@c.us", "").replace("@lid", "");
+  try {
+    var allChats = await wppClient.getChats();
+    for (var i = 0; i < allChats.length; i++) {
+      var c = allChats[i];
+      if (!c.id || !c.id._serialized) continue;
+      var cId = c.id._serialized;
+      // Compara pelo numero (pode estar como @c.us ou @lid)
+      if (cId.includes(rawNum) || (c.id.user && c.id.user === rawNum)) {
+        chatCache[phone] = c;
+        console.log("✅ Chat encontrado via busca: " + cId);
+        await c.sendMessage(text);
+        return;
+      }
+    }
+  } catch (e4) {
+    console.log("⚠️ Busca de chats falhou:", e4.message);
+  }
+
+  // 4. Tenta com getNumberId (converte numero pra ID valido)
+  try {
+    var numberId = await wppClient.getNumberId(rawNum);
+    if (numberId && numberId._serialized) {
+      console.log("✅ getNumberId resolveu: " + numberId._serialized);
+      await wppClient.sendMessage(numberId._serialized, text);
+      return;
+    }
+  } catch (e5) {}
+
+  // 5. Tenta via getChatById com @lid
+  try {
+    var lidId = rawNum + "@lid";
+    var lidChat = await wppClient.getChatById(lidId);
+    if (lidChat) {
+      chatCache[phone] = lidChat;
+      console.log("✅ Chat encontrado via @lid: " + lidId);
+      await lidChat.sendMessage(text);
+      return;
+    }
+  } catch (e6) {}
+
+  // 6. Busca pelo contactNumber real salvo no DB
+  try {
+    var conv = await loadConversation(phone);
+    if (conv.contactNumber) {
+      var realPhone = conv.contactNumber.replace(/[^0-9]/g, "") + "@c.us";
+      console.log("✅ Usando contactNumber do DB: " + realPhone);
+      await wppClient.sendMessage(realPhone, text);
+      return;
+    }
+  } catch (e7) {}
+
+  throw new Error("Nao foi possivel enviar mensagem para " + phone + ". Contato pode ter formato LID incompativel. Tente responder diretamente pelo WhatsApp.");
+}
 app.use(express.static(path.join(__dirname, "public")));
 
 var state = {
@@ -55,8 +199,8 @@ var state = {
   stats: { total: 0, active: 0, paused: 0, handedOff: 0 },
 };
 
-function refreshStats() {
-  var leads = listAllLeads();
+async function refreshStats() {
+  var leads = await listAllLeads();
   state.stats = {
     total: leads.length,
     active: leads.filter(function(l) { return l.status === "active"; }).length,
@@ -65,10 +209,10 @@ function refreshStats() {
   };
 }
 
-function broadcastUpdate() {
-  refreshStats();
+async function broadcastUpdate() {
+  await refreshStats();
   io.emit("stats", state.stats);
-  io.emit("leads", listAllLeads());
+  io.emit("leads", await listAllLeads());
 }
 
 // ── Socket.io ──
@@ -78,10 +222,10 @@ io.on("connection", function(socket) {
   socket.emit("status", state.whatsappStatus);
   if (state.qrDataUrl) socket.emit("qr", state.qrDataUrl);
   socket.emit("stats", state.stats);
-  socket.emit("leads", listAllLeads());
+  listAllLeads().then(function(l) { socket.emit("leads", l); });
 
-  socket.on("get-conversation", function(phone) {
-    socket.emit("conversation-detail", getConversation(phone));
+  socket.on("get-conversation", async function(phone) {
+    socket.emit("conversation-detail", await getConversation(phone));
   });
 
   socket.on("get-leads", function() {
@@ -89,21 +233,21 @@ io.on("connection", function(socket) {
   });
 
   // ── TAKEOVER: Pausar bot (humano assume) ──
-  socket.on("pause-bot", function(phone) {
-    var conv = pauseBot(phone);
+  socket.on("pause-bot", async function(phone) {
+    var conv = await pauseBot(phone);
     var ts = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
     io.emit("log", { type: "info", text: "[" + ts + "] 🔴 Bot PAUSADO para " + phone.replace("@c.us", "") + " — voce assumiu a conversa" });
     broadcastUpdate();
-    socket.emit("conversation-detail", getConversation(phone));
+    socket.emit("conversation-detail", await getConversation(phone));
   });
 
   // ── REATIVAR: Bot volta a responder ──
-  socket.on("resume-bot", function(phone) {
-    var conv = resumeBot(phone);
+  socket.on("resume-bot", async function(phone) {
+    var conv = await resumeBot(phone);
     var ts = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
     io.emit("log", { type: "info", text: "[" + ts + "] 🟢 Bot REATIVADO para " + phone.replace("@c.us", "") });
     broadcastUpdate();
-    socket.emit("conversation-detail", getConversation(phone));
+    socket.emit("conversation-detail", await getConversation(phone));
   });
 
   // ── ENVIAR MENSAGEM COMO HUMANO ──
@@ -126,11 +270,11 @@ io.on("connection", function(socket) {
       var fullPhone = phone.includes("@c.us") ? phone : phone + "@c.us";
       console.log("Enviando mensagem humana para:", fullPhone);
 
-      var sendResult = await wpp.sendMessage(fullPhone, text);
+      var sendResult = await safeSendMessage(wpp,fullPhone, text);
       console.log("Mensagem enviada com sucesso:", sendResult && sendResult.id ? sendResult.id._serialized : "ok");
 
       // Salva no historico como "human" e pausa o bot automaticamente
-      var conv = loadConversation(fullPhone);
+      var conv = await loadConversation(fullPhone);
       addMessage(conv, "human", text);
       // Quando humano envia pelo dashboard, pausa o bot para nao conflitar
       if (conv.botActive) {
@@ -139,12 +283,12 @@ io.on("connection", function(socket) {
         conv.pausedAt = new Date().toISOString();
         io.emit("log", { type: "info", text: "[" + ts + "] ⏸ Bot pausado automaticamente (humano assumiu)" });
       }
-      saveConversation(fullPhone, conv);
+      await saveConversation(fullPhone, conv);
 
       io.emit("log", { type: "out", text: "[" + ts + "] 👤 Voce -> " + phone.replace("@c.us", "") + ": " + text });
 
       broadcastUpdate();
-      io.emit("conversation-detail", getConversation(fullPhone));
+      io.emit("conversation-detail", await getConversation(fullPhone));
     } catch (err) {
       console.error("Erro ao enviar mensagem humana:", err);
       io.emit("log", { type: "error", text: "[" + ts + "] Erro ao enviar: " + err.message });
@@ -246,6 +390,12 @@ function startWhatsApp() {
 
       var phone = message.from;
 
+      // Cacheia o chat pra poder responder depois (evita erro de LID)
+      try {
+        var chatObj = await message.getChat();
+        if (chatObj) chatCache[phone] = chatObj;
+      } catch (e) {}
+
       // Busca o numero real do contato
       var contactNumber = null;
       try {
@@ -261,9 +411,9 @@ function startWhatsApp() {
         // So responde se for midia real (audio, imagem, video, documento, sticker)
         var hasMedia = message.hasMedia || message.type === "audio" || message.type === "ptt" || message.type === "image" || message.type === "video" || message.type === "document" || message.type === "sticker";
         if (hasMedia) {
-          var convCheck = loadConversation(phone);
+          var convCheck = await loadConversation(phone);
           if (convCheck.botActive) {
-            await wpp.sendMessage(phone, "Oi! No momento consigo processar apenas mensagens de texto. Pode me descrever por escrito o que precisa? 😊");
+            await safeSendMessage(wpp,phone, "Oi! No momento consigo processar apenas mensagens de texto. Pode me descrever por escrito o que precisa? 😊");
           }
         }
         return;
@@ -275,7 +425,7 @@ function startWhatsApp() {
       // Sempre loga a mensagem
       io.emit("log", { type: "in", text: "[" + ts + "] " + shortPhone + ": " + body });
 
-      var conv = loadConversation(phone);
+      var conv = await loadConversation(phone);
 
       // Salva o numero real do contato (diferente do ID interno do WhatsApp)
       if (contactNumber && !conv.contactNumber) {
@@ -316,7 +466,7 @@ function startWhatsApp() {
 
       // Sempre salva a mensagem do lead no historico
       addMessage(conv, "lead", body);
-      saveConversation(phone, conv);
+      await saveConversation(phone, conv);
 
       // Atualiza dashboard em tempo real
       broadcastUpdate();
@@ -345,7 +495,7 @@ function startWhatsApp() {
           return;
         } else {
           conv.spamPausedUntil = null;
-          saveConversation(phone, conv);
+          await saveConversation(phone, conv);
         }
       }
 
@@ -364,8 +514,8 @@ function startWhatsApp() {
 
       if (repeatCount >= 3) {
         conv.spamPausedUntil = new Date(Date.now() + spamPause).toISOString();
-        saveConversation(phone, conv);
-        await wpp.sendMessage(phone, "Oi! Vi que voce enviou a mesma mensagem algumas vezes. Vou pausar por 10 minutos, ok? Quando voltar, te respondo com calma! ✅");
+        await saveConversation(phone, conv);
+        await safeSendMessage(wpp,phone, "Oi! Vi que voce enviou a mesma mensagem algumas vezes. Vou pausar por 10 minutos, ok? Quando voltar, te respondo com calma! ✅");
         io.emit("log", { type: "info", text: "[" + ts + "] 🚫 " + shortPhone + " — spam detectado (msg repetida), pausando 10 min" });
         broadcastUpdate();
         return;
@@ -384,7 +534,7 @@ function startWhatsApp() {
       // ── Checa se pediu humano ──
       if (checkHumanRequest(body)) {
         var humanMsg = "Claro! Vou encaminhar voce para o nosso setor de vendas e eles vao entrar em contato com voce. Ate logo! ✅";
-        await wpp.sendMessage(phone, humanMsg);
+        await safeSendMessage(wpp,phone, humanMsg);
         addMessage(conv, "agent", humanMsg);
         await doHandoff(phone, conv, { handoffReason: "pediu_humano", contactNumber: conv.contactNumber || null });
         return;
@@ -392,7 +542,7 @@ function startWhatsApp() {
 
       // ── Limite de 50 mensagens do bot ──
       if ((conv.agentExchanges || 0) >= 50) {
-        await wpp.sendMessage(phone, "Oi! Ja conversamos bastante e quero garantir o melhor atendimento. Vou te transferir para um dos nossos consultores. Um momento! ✅");
+        await safeSendMessage(wpp,phone, "Oi! Ja conversamos bastante e quero garantir o melhor atendimento. Vou te transferir para um dos nossos consultores. Um momento! ✅");
         await doHandoff(phone, conv, { handoffReason: "limite_50_msgs", contactNumber: conv.contactNumber || null });
         return;
       }
@@ -420,13 +570,13 @@ function startWhatsApp() {
 
       if (result.handoff || result.qualified) {
         var ld = Object.assign({}, result.leadData, { phone: phone, contactNumber: conv.contactNumber || null });
-        await wpp.sendMessage(phone, result.response);
+        await safeSendMessage(wpp,phone, result.response);
         await doHandoff(phone, conv, ld);
         return;
       }
 
-      saveConversation(phone, conv);
-      await wpp.sendMessage(phone, result.response);
+      await saveConversation(phone, conv);
+      await safeSendMessage(wpp,phone, result.response);
       broadcastUpdate();
 
       // ── Follow-up: se o lead nao responder em 10 min, cobra ──
@@ -441,14 +591,14 @@ function startWhatsApp() {
         // Timer 10 min: cobra o lead
         followUpTimers[phone] = setTimeout(async function() {
           try {
-            var freshConv = loadConversation(phone);
+            var freshConv = await loadConversation(phone);
             if (freshConv.messages.length > 0 && freshConv.botActive && freshConv.status === "active") {
               var lastMsg = freshConv.messages[freshConv.messages.length - 1];
               if (lastMsg.role === "agent") {
                 var followUpText = "Oi! Ainda esta por ai? Estou aguardando sua resposta pra gente continuar. 😊";
                 addMessage(freshConv, "agent", followUpText);
-                saveConversation(phone, freshConv);
-                await wpp.sendMessage(phone, followUpText);
+                await saveConversation(phone, freshConv);
+                await safeSendMessage(wpp,phone, followUpText);
                 var fts = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
                 io.emit("log", { type: "out", text: "[" + fts + "] ⏰ Follow-up -> " + phone.replace("@c.us", "") });
                 broadcastUpdate();
@@ -463,7 +613,7 @@ function startWhatsApp() {
         // Timer 30 min: encerra a conversa
         closeTimers[phone] = setTimeout(async function() {
           try {
-            var freshConv = loadConversation(phone);
+            var freshConv = await loadConversation(phone);
             if (freshConv.messages.length > 0 && freshConv.botActive && freshConv.status === "active") {
               var lastMsg = freshConv.messages[freshConv.messages.length - 1];
               if (lastMsg.role === "agent") {
@@ -471,8 +621,8 @@ function startWhatsApp() {
                 addMessage(freshConv, "agent", closeText);
                 freshConv.status = "closed";
                 freshConv.botActive = false;
-                saveConversation(phone, freshConv);
-                await wpp.sendMessage(phone, closeText);
+                await saveConversation(phone, freshConv);
+                await safeSendMessage(wpp,phone, closeText);
                 var cts = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
                 io.emit("log", { type: "info", text: "[" + cts + "] 🔒 Conversa encerrada por inatividade -> " + phone.replace("@c.us", "") });
                 broadcastUpdate();
@@ -520,7 +670,7 @@ async function doHandoff(phone, conv, leadData) {
   var groupName = process.env.HANDOFF_GROUP_NAME || "LEADS";
 
   markHandedOff(conv, leadData);
-  saveConversation(phone, conv);
+  await saveConversation(phone, conv);
 
   // NAO envia mensagem ao lead aqui — a resposta da IA ja inclui a despedida
 
@@ -539,7 +689,7 @@ async function doHandoff(phone, conv, leadData) {
       groupId = await findGroupByName(groupName);
     }
     if (groupId) {
-      await wpp.sendMessage(groupId, teamMsg);
+      await safeSendMessage(wpp,groupId, teamMsg);
       io.emit("log", { type: "info", text: "[" + ts + "] ✅ Resumo enviado para o grupo de leads" });
     } else {
       io.emit("log", { type: "error", text: "[" + ts + "] ⚠️ Grupo '" + groupName + "' nao encontrado. Configure HANDOFF_GROUP_ID ou HANDOFF_GROUP_NAME no .env" });
@@ -552,7 +702,7 @@ async function doHandoff(phone, conv, leadData) {
   // Envia tambem para o numero individual se configurado
   if (notifyNumber && notifyNumber !== "5511999999999@c.us") {
     try {
-      await wpp.sendMessage(notifyNumber, teamMsg);
+      await safeSendMessage(wpp,notifyNumber, teamMsg);
     } catch (err) {
       console.error("Erro ao notificar:", err.message);
     }
@@ -581,6 +731,10 @@ process.on("unhandledRejection", function(err) {
   io.emit("log", { type: "error", text: "Erro async: " + msg });
 });
 
+// Mata processo anterior e inicia servidor
+killPort(PORT).then(function() {
+  return initDb();
+}).then(function() {
 server.listen(PORT, function() {
   var url = "http://localhost:" + PORT;
   console.log("");
@@ -610,9 +764,11 @@ server.listen(PORT, function() {
     io
   );
 });
+}); // fim killPort().then
 
 process.on("SIGINT", async function() {
   console.log("\nEncerrando...");
   if (wpp) { try { await wpp.destroy(); } catch (e) {} }
+  try { await closeDb(); } catch (e) {}
   process.exit(0);
 });

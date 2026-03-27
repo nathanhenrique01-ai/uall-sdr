@@ -11,6 +11,7 @@
   "dependencies": {
     "dotenv": "^16.4.7",
     "express": "^4.21.1",
+    "mariadb": "^3.5.2",
     "node-cron": "^4.2.1",
     "openai": "^4.73.1",
     "qrcode": "^1.5.4",
