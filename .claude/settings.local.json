@@ -22,7 +22,14 @@
       "Bash(node -e \"import\\(''./db.js''\\).then\\(m => m.initDb\\(\\).then\\(\\(\\) => { console.log\\(''done''\\); process.exit\\(0\\); }\\)\\)\")",
       "Bash(\"C:/Program Files/MariaDB 12.2/bin/mysql.exe\" -u root -proot -e \"SHOW TABLES FROM uall_sdr; DESCRIBE uall_sdr.leads; DESCRIBE uall_sdr.messages;\")",
       "Bash(grep -E \"\\\\.\\(js|json\\)$\")",
-      "Bash(ls -la /d/Backup/uall-sdr/*.js /d/Backup/uall-sdr/*.json)"
+      "Bash(ls -la /d/Backup/uall-sdr/*.js /d/Backup/uall-sdr/*.json)",
+      "Bash(node -c /d/Backup/uall-sdr/index.js)",
+      "Bash(node -c index.js)",
+      "Bash(awk 'NR==1033,NR==1330 {print}' /d/Backup/uall-sdr/index.js)",
+      "Bash(awk 'NR>=896 && NR<=902' /d/Backup/uall-sdr/index.js)",
+      "Bash(awk 'NR>=1339 && NR<=1345' /d/Backup/uall-sdr/index.js)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"feat: suporte a múltiplos números WhatsApp com nova interface:*)"
     ]
   }
 }
