@@ -431,7 +431,7 @@ function startWhatsApp() {
   wpp.on("auth_failure", function() {
     state.whatsappStatus = "disconnected";
     io.emit("status", "disconnected");
-    emitLog("error", "Falha na autenticacao. Clique em 'Resetar Sessao'."));
+    emitLog("error", "Falha na autenticacao. Clique em 'Resetar Sessao'.");
     try {
       fs.mkdirSync(path.join(__dirname, "data"), { recursive: true });
       fs.writeFileSync(CLEAN_FLAG, "1");
@@ -449,10 +449,10 @@ function startWhatsApp() {
 
     io.emit("status", "disconnected");
     if (reason === "LOGOUT") {
-      emitLog("error", "WhatsApp deslogado. Clique em 'Reconectar'."));
+      emitLog("error", "WhatsApp deslogado. Clique em 'Reconectar'.");
       try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch (e) {}
     } else {
-      emitLog("info", "Conexao perdida. Reconectando em 10s..."));
+      emitLog("info", "Conexao perdida. Reconectando em 10s...");
       setTimeout(function() { startWhatsApp(); }, 10000);
     }
   });
