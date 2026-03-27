@@ -308,7 +308,7 @@ function buildAiContextApiResponse(accountInfo, profile) {
     account: {
       name: accountInfo && accountInfo.name ? accountInfo.name : null,
       phone: accountPhone,
-      status: state.whatsappStatus || (accountInfo && accountInfo.status) || "disconnected",
+      status: wppStatus[accountPhone] || (accountInfo && accountInfo.status) || "disconnected",
       lastQrAt: accountInfo && accountInfo.lastQrAt ? accountInfo.lastQrAt : null,
     },
     profile: profile || {
@@ -340,7 +340,7 @@ function buildNotificationRoutesApiResponse(accountInfo, routes, groups) {
     account: {
       name: accountInfo && accountInfo.name ? accountInfo.name : null,
       phone: accountPhone,
-      status: state.whatsappStatus || (accountInfo && accountInfo.status) || "disconnected",
+      status: wppStatus[accountPhone] || (accountInfo && accountInfo.status) || "disconnected",
     },
     routes: routes || [],
     groups: groups || [],
@@ -350,7 +350,7 @@ function buildNotificationRoutesApiResponse(accountInfo, routes, groups) {
 async function getWhatsAppGroups(clientInstance) {
   var activeClient = clientInstance || wpp;
 
-  if (!activeClient || state.whatsappStatus !== "connected") {
+  if (!activeClient) {
     return [];
   }
 
@@ -617,7 +617,7 @@ app.post("/api/ai-context/import", upload.array("files", 30), async function(req
       account: {
         name: accountInfo && accountInfo.name ? accountInfo.name : null,
         phone: accountPhone,
-        status: state.whatsappStatus || (accountInfo && accountInfo.status) || "disconnected",
+        status: wppStatus[accountPhone] || (accountInfo && accountInfo.status) || "disconnected",
       },
       profile: importResult.profile,
       imported: importResult.imported,
@@ -1009,9 +1009,9 @@ async function startWhatsAppClient(accountPhone, resetSession) {
     emitLog("error", "Falha na autenticacao para " + normalizedPhone + ". Clique em 'Resetar Sessao'.");
   });
 
-  wpp.on("disconnected", async function(reason) {
-    console.log("Desconectado:", reason);
-    state.whatsappStatus = "disconnected";
+  clientInstance.on("disconnected", async function(reason) {
+    console.log("Desconectado (" + normalizedPhone + "):", reason);
+    wppStatus[normalizedPhone] = "disconnected";
 
     // Salva status desconectado no banco
     try {
@@ -1020,16 +1020,16 @@ async function startWhatsAppClient(accountPhone, resetSession) {
 
     io.emit("status", "disconnected");
     if (reason === "LOGOUT") {
-      await clearWhatsAppSession();
-      emitLog("error", "WhatsApp deslogado. Clique em 'Reconectar'.");
+      await clearWhatsAppSession(normalizedPhone);
+      emitLog("error", "WhatsApp deslogado para " + normalizedPhone + ". Clique em 'Reconectar'.");
     } else {
-      emitLog("info", "Conexao perdida. Reconectando em 10s...");
-      scheduleWhatsAppRestart(10000);
+      emitLog("info", "Conexao perdida para " + normalizedPhone + ". Reconectando em 10s...");
+      scheduleWhatsAppRestart(normalizedPhone, 10000);
     }
   });
 
   // ── Mensagens ──
-  wpp.on("message", async function(message) {
+  clientInstance.on("message", async function(message) {
     try {
       // Ignora: status, mensagens proprias, e QUALQUER grupo
       if (message.from === "status@broadcast") return;
@@ -1068,7 +1068,7 @@ async function startWhatsAppClient(accountPhone, resetSession) {
         if (hasMedia) {
           var convCheck = await loadConversation(phone);
           if (convCheck.botActive) {
-            await safeSendMessage(wpp,phone, "Oi! No momento consigo processar apenas mensagens de texto. Pode me descrever por escrito o que precisa? 😊");
+            await safeSendMessage(clientInstance, phone, "Oi! No momento consigo processar apenas mensagens de texto. Pode me descrever por escrito o que precisa? 😊");
           }
         }
         return;
@@ -1184,7 +1184,7 @@ async function startWhatsAppClient(accountPhone, resetSession) {
       if (repeatCount >= 3) {
         conv.spamPausedUntil = new Date(Date.now() + spamPause).toISOString();
         await saveConversation(phone, conv);
-        await safeSendMessage(wpp,phone, "Oi! Vi que voce enviou a mesma mensagem algumas vezes. Vou pausar por 10 minutos, ok? Quando voltar, te respondo com calma! ✅");
+        await safeSendMessage(clientInstance, phone, "Oi! Vi que voce enviou a mesma mensagem algumas vezes. Vou pausar por 10 minutos, ok? Quando voltar, te respondo com calma! ✅");
         io.emit("log", { type: "info", text: "[" + ts + "] 🚫 " + shortPhone + " — spam detectado (msg repetida), pausando 10 min" });
         broadcastUpdate();
         return;
@@ -1203,7 +1203,7 @@ async function startWhatsAppClient(accountPhone, resetSession) {
       // ── Checa se pediu humano ──
       if (checkHumanRequest(body)) {
         var humanMsg = "Claro! Vou encaminhar voce para o nosso setor de vendas e eles vao entrar em contato com voce. Ate logo! ✅";
-        await safeSendMessage(wpp,phone, humanMsg);
+        await safeSendMessage(clientInstance, phone, humanMsg);
         addMessage(conv, "agent", humanMsg);
         await doHandoff(phone, conv, { handoffReason: "pediu_humano", contactNumber: conv.contactNumber || null });
         return;
@@ -1211,7 +1211,7 @@ async function startWhatsAppClient(accountPhone, resetSession) {
 
       // ── Limite de 50 mensagens do bot ──
       if ((conv.agentExchanges || 0) >= 50) {
-        await safeSendMessage(wpp,phone, "Oi! Ja conversamos bastante e quero garantir o melhor atendimento. Vou te transferir para um dos nossos consultores. Um momento! ✅");
+        await safeSendMessage(clientInstance, phone, "Oi! Ja conversamos bastante e quero garantir o melhor atendimento. Vou te transferir para um dos nossos consultores. Um momento! ✅");
         await doHandoff(phone, conv, { handoffReason: "limite_50_msgs", contactNumber: conv.contactNumber || null });
         return;
       }
@@ -1257,13 +1257,13 @@ async function startWhatsAppClient(accountPhone, resetSession) {
 
       if (result.handoff || result.qualified) {
         var ld = Object.assign({}, result.leadData, { phone: phone, contactNumber: conv.contactNumber || null });
-        await safeSendMessage(wpp,phone, result.response);
+        await safeSendMessage(clientInstance, phone, result.response);
         await doHandoff(phone, conv, ld);
         return;
       }
 
       await saveConversation(phone, conv);
-      await safeSendMessage(wpp,phone, result.response);
+      await safeSendMessage(clientInstance, phone, result.response);
       broadcastUpdate();
 
       // ── Follow-up: se o lead nao responder em 10 min, cobra ──
@@ -1285,7 +1285,7 @@ async function startWhatsAppClient(accountPhone, resetSession) {
                 var followUpText = "Oi! Ainda esta por ai? Estou aguardando sua resposta pra gente continuar. 😊";
                 addMessage(freshConv, "agent", followUpText);
                 await saveConversation(phone, freshConv);
-                await safeSendMessage(wpp,phone, followUpText);
+                await safeSendMessage(clientInstance, phone, followUpText);
                 var fts = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
                 io.emit("log", { type: "out", text: "[" + fts + "] ⏰ Follow-up -> " + phone.replace("@c.us", "") });
                 broadcastUpdate();
@@ -1309,7 +1309,7 @@ async function startWhatsAppClient(accountPhone, resetSession) {
                 freshConv.status = "closed";
                 freshConv.botActive = false;
                 await saveConversation(phone, freshConv);
-                await safeSendMessage(wpp,phone, closeText);
+                await safeSendMessage(clientInstance, phone, closeText);
                 var cts = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
                 io.emit("log", { type: "info", text: "[" + cts + "] 🔒 Conversa encerrada por inatividade -> " + phone.replace("@c.us", "") });
                 broadcastUpdate();
@@ -1328,16 +1328,58 @@ async function startWhatsAppClient(accountPhone, resetSession) {
     }
   });
 
-  console.log("Inicializando WhatsApp...");
-  try {
-    await wpp.initialize();
   } catch (err) {
-    console.error("Erro ao inicializar WhatsApp:", err.message);
+    console.error("Erro ao configurar listeners do WhatsApp para " + normalizedPhone + ":", err.message);
     io.emit("status", "disconnected");
-    io.emit("log", { type: "error", text: "Erro ao iniciar: " + err.message + ". Clique em 'Reconectar'." });
-    scheduleWhatsAppRestart(5000);
+    io.emit("log", { type: "error", text: "Erro ao configurar cliente: " + err.message });
+  }
+
+  console.log("Inicializando WhatsApp para " + normalizedPhone + "...");
+  try {
+    await clientInstance.initialize();
+  } catch (err) {
+    console.error("Erro ao inicializar WhatsApp para " + normalizedPhone + ":", err.message);
+    io.emit("status", "disconnected");
+    io.emit("log", { type: "error", text: "Erro ao iniciar " + normalizedPhone + ": " + err.message + ". Clique em 'Reconectar'." });
+    scheduleWhatsAppRestart(normalizedPhone, 5000);
   } finally {
-    whatsappStarting = false;
+    wppStarting[normalizedPhone] = false;
+  }
+}
+
+async function stopWhatsAppClient(accountPhone) {
+  var normalizedPhone = normalizePhoneNumber(accountPhone);
+
+  if (!wppClients[normalizedPhone]) {
+    console.log("Cliente WhatsApp nao encontrado para " + normalizedPhone);
+    return;
+  }
+
+  try {
+    console.log("Parando cliente WhatsApp para " + normalizedPhone);
+    var clientInstance = wppClients[normalizedPhone];
+
+    // Destruir o cliente
+    try {
+      await clientInstance.destroy();
+    } catch (e) {
+      console.error("Erro ao destruir cliente:", e.message);
+    }
+
+    // Remover do mapa de clientes
+    delete wppClients[normalizedPhone];
+
+    // Atualizar status
+    wppStatus[normalizedPhone] = "disconnected";
+
+    // Broadcast status para Socket.IO
+    io.emit("status", "disconnected");
+    io.emit("log", { type: "info", text: "Cliente WhatsApp para " + normalizedPhone + " foi parado" });
+
+    console.log("✅ Cliente WhatsApp para " + normalizedPhone + " foi parado com sucesso");
+  } catch (err) {
+    console.error("Erro ao parar WhatsApp para " + normalizedPhone + ":", err.message);
+    io.emit("log", { type: "error", text: "Erro ao parar cliente " + normalizedPhone + ": " + err.message });
   }
 }
 

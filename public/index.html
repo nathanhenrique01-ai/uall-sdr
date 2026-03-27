@@ -1,1078 +1,864 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>U-All SDR Agent</title>
-<script src="/socket.io/socket.io.js"></script>
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-  *{margin:0;padding:0;box-sizing:border-box}
-  :root{
-    --blue:#0066cc;--blue-dark:#004d99;--blue-light:#e8f2ff;--blue-glow:rgba(0,102,204,0.12);
-    --green:#25D366;--green-dark:#1da851;--orange:#f59e0b;--red:#ef4444;--purple:#8b5cf6;
-    --g50:#f8fafc;--g100:#f1f5f9;--g200:#e2e8f0;--g300:#cbd5e1;--g400:#94a3b8;
-    --g500:#64748b;--g600:#475569;--g700:#334155;--g800:#1e293b;--g900:#0f172a;
-    --radius:10px;--shadow:0 1px 3px rgba(0,0,0,0.06),0 1px 2px rgba(0,0,0,0.04);
-  }
-  body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--g50);color:var(--g800);min-height:100vh}
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>U-All SDR Agent — Multi WhatsApp</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
 
-  .topbar{background:var(--g900);color:white;padding:0 28px;height:56px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
-  .topbar-left{display:flex;align-items:center;gap:14px}
-  .topbar-logo{font-size:18px;font-weight:700;letter-spacing:-0.3px}
-  .topbar-logo span{color:var(--blue)}
-  .topbar-badge{font-size:11px;font-weight:600;background:#10a37f;color:white;padding:3px 10px;border-radius:20px;letter-spacing:0.5px}
-  .topbar-right{display:flex;align-items:center;gap:10px}
-  .btn-sm{font-size:12px;font-weight:600;padding:6px 14px;border-radius:8px;border:none;cursor:pointer;transition:all 0.15s;display:none}
-  .btn-reconnect{background:var(--orange);color:white}
-  .btn-reconnect:hover{background:#d97706}
-  .btn-reset{background:var(--red);color:white}
-  .btn-reset:hover{background:#dc2626}
-  .btn-sm.visible{display:inline-block}
-  .status-pill{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500;padding:6px 14px;border-radius:20px;background:rgba(255,255,255,0.08)}
-  .status-dot{width:8px;height:8px;border-radius:50%;background:var(--g500)}
-  .status-dot.connected{background:var(--green);box-shadow:0 0 6px var(--green)}
-  .status-dot.qr{background:var(--orange);animation:pulse 1.5s infinite}
-  .status-dot.disconnected{background:var(--red)}
-  @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+    :root {
+      --g50: #f9fafb;
+      --g100: #f3f4f6;
+      --g200: #e5e7eb;
+      --g300: #d1d5db;
+      --g400: #9ca3af;
+      --g500: #6b7280;
+      --g600: #4b5563;
+      --g700: #374151;
+      --g800: #1f2937;
+      --g900: #111827;
+      --blue: #3b82f6;
+      --blue-light: #60a5fa;
+      --blue-glow: rgba(59, 130, 246, 0.3);
+      --green: #10b981;
+      --orange: #f59e0b;
+      --red: #ef4444;
+      --purple: #8b5cf6;
+      --radius: 12px;
+      --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
 
-  .container{max-width:1440px;margin:0 auto;padding:24px 28px}
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: var(--g50);
+      color: var(--g900);
+    }
 
-  .qr-overlay{display:none;position:fixed;inset:0;background:rgba(15,23,42,0.8);backdrop-filter:blur(8px);z-index:200;justify-content:center;align-items:center}
-  .qr-overlay.active{display:flex}
-  .qr-card{background:white;border-radius:20px;padding:48px;text-align:center;box-shadow:0 25px 60px rgba(0,0,0,0.3);max-width:420px;width:90%}
-  .qr-card h2{font-size:20px;font-weight:700;margin-bottom:6px;color:var(--g900)}
-  .qr-card p{font-size:14px;color:var(--g500);margin-bottom:28px;line-height:1.5}
-  .qr-card img{border-radius:12px;border:3px solid var(--g100)}
-  .qr-steps{margin-top:24px;text-align:left;font-size:13px;color:var(--g600);line-height:2}
-  .qr-steps b{color:var(--g800)}
+    .layout {
+      display: grid;
+      grid-template-columns: 56px 1fr 380px;
+      grid-template-rows: 56px 1fr;
+      height: 100vh;
+      gap: 0;
+    }
 
-  .stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
-  .stat-card{background:white;border-radius:var(--radius);padding:20px 24px;box-shadow:var(--shadow);border:1px solid var(--g200)}
-  .stat-card .label{font-size:12px;font-weight:600;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px}
-  .stat-card .value{font-size:32px;font-weight:700;color:var(--g900);line-height:1}
-  .stat-card.blue .value{color:var(--blue)}
-  .stat-card.green .value{color:var(--green-dark)}
-  .stat-card.purple .value{color:var(--purple)}
+    /* ──────────── TOPBAR ──────────── */
+    .topbar {
+      grid-column: 1 / -1;
+      background: var(--g900);
+      border-bottom: 1px solid var(--g700);
+      padding: 0 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 56px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
 
-  .main-grid{display:grid;grid-template-columns:380px 1fr;gap:20px;height:calc(100vh - 230px);min-height:460px}
-  .panel{background:white;border-radius:var(--radius);box-shadow:var(--shadow);border:1px solid var(--g200);display:flex;flex-direction:column;overflow:hidden}
-  .panel-header{padding:16px 20px;border-bottom:1px solid var(--g200);font-size:14px;font-weight:600;color:var(--g700);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
-  .panel-body{flex:1;overflow-y:auto}
+    .topbar-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex: 1;
+    }
 
-  .lead-item{padding:14px 20px;border-bottom:1px solid var(--g100);cursor:pointer;transition:background 0.15s}
-  .lead-item:hover{background:var(--blue-glow)}
-  .lead-item.active{background:var(--blue-light);border-left:3px solid var(--blue)}
-  .lead-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
-  .lead-phone{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:var(--g800)}
-  .lead-status{font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:0.3px}
-  .lead-status.active{background:#dbeafe;color:#1d4ed8}
-  .lead-status.handed_off{background:#dcfce7;color:#15803d}
-  .lead-status.paused{background:#f3e8ff;color:#7c3aed}
-  .lead-name{font-size:13px;color:var(--g500);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .lead-preview{font-size:12px;color:var(--g400);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .logo {
+      color: white;
+      font-weight: 700;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
 
-  .empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--g400);font-size:14px;gap:8px;padding:40px;text-align:center}
-  .empty-icon{font-size:40px;opacity:0.4}
+    .logo-icon {
+      width: 24px;
+      height: 24px;
+      background: var(--green);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+      color: white;
+    }
 
-  .conv-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--g400);gap:8px}
-  .conv-messages{padding:20px;display:flex;flex-direction:column;gap:10px}
-  .msg{max-width:75%;padding:10px 14px;border-radius:12px;font-size:14px;line-height:1.5}
-  .msg.lead{background:var(--g100);color:var(--g800);align-self:flex-start;border-bottom-left-radius:4px}
-  .msg.agent{background:var(--blue);color:white;align-self:flex-end;border-bottom-right-radius:4px}
-  .msg.human{background:var(--purple);color:white;align-self:flex-end;border-bottom-right-radius:4px}
-  .msg-meta{font-size:10px;opacity:0.6;margin-top:4px;display:flex;gap:6px;align-items:center}
-  .msg-sender{font-weight:600;opacity:0.8}
-  .conv-info-bar{padding:12px 20px;background:var(--g50);border-bottom:1px solid var(--g200);display:flex;gap:20px;flex-wrap:wrap;flex-shrink:0}
-  .conv-info-item{font-size:12px;color:var(--g500)}
-  .conv-info-item b{color:var(--g700);font-weight:600}
+    .current-account {
+      color: var(--g400);
+      font-size: 12px;
+    }
 
-  /* Barra de controle da conversa */
-  .conv-controls{padding:10px 20px;border-bottom:1px solid var(--g200);display:none;flex-shrink:0;gap:8px;align-items:center}
-  .conv-controls.visible{display:flex}
-  .btn-takeover{font-size:12px;font-weight:600;padding:6px 16px;border-radius:8px;border:none;cursor:pointer;transition:all 0.15s}
-  .btn-pause{background:var(--purple);color:white}
-  .btn-pause:hover{background:#7c3aed}
-  .btn-resume{background:var(--green);color:white}
-  .btn-resume:hover{background:var(--green-dark)}
-  .conv-status-tag{font-size:11px;font-weight:600;padding:4px 10px;border-radius:6px;margin-left:auto}
-  .conv-status-tag.bot{background:#dbeafe;color:#1d4ed8}
-  .conv-status-tag.human{background:#f3e8ff;color:#7c3aed}
-  .conv-status-tag.off{background:#dcfce7;color:#15803d}
+    .current-account strong {
+      color: white;
+    }
 
-  /* Input de mensagem humana */
-  .msg-input-bar{padding:12px 20px;border-top:1px solid var(--g200);display:none;flex-shrink:0;gap:8px;align-items:center;background:var(--g50)}
-  .msg-input-bar.visible{display:flex}
-  .msg-input{flex:1;padding:10px 14px;border-radius:8px;border:1px solid var(--g300);font-size:14px;font-family:inherit;outline:none;transition:border 0.15s}
-  .msg-input:focus{border-color:var(--purple)}
-  .msg-input::placeholder{color:var(--g400)}
-  .btn-send{background:var(--purple);color:white;border:none;padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;transition:background 0.15s}
-  .btn-send:hover{background:#7c3aed}
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
 
-  .log-panel{margin-top:20px}
-  .log-body{max-height:180px;overflow-y:auto;padding:12px 16px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.9}
-  .log-line{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .log-line.in{color:var(--blue)}
-  .log-line.out{color:var(--green-dark)}
-  .log-line.handoff{color:var(--orange);font-weight:600}
-  .log-line.error{color:var(--red)}
-  .log-line.info{color:var(--g500)}
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 20px;
+    }
 
-  .ai-panel{margin-top:20px}
-  .ai-panel-body{display:grid;grid-template-columns:320px 1fr}
-  .ai-side{padding:24px;border-right:1px solid var(--g200);background:linear-gradient(180deg,#f8fbff 0%,#eef5ff 100%)}
-  .ai-side-label{font-size:11px;font-weight:700;color:var(--g500);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:10px}
-  .ai-connected-number{font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700;color:var(--g900);line-height:1.2}
-  .ai-side-text{font-size:13px;color:var(--g600);line-height:1.6;margin-top:12px}
-  .ai-side-badge{display:inline-flex;align-items:center;gap:6px;margin-top:14px;padding:6px 12px;border-radius:999px;background:var(--g900);color:white;font-size:12px;font-weight:600}
-  .ai-editor{padding:22px}
-  .ai-lazy-box{border:1px dashed var(--blue);background:linear-gradient(180deg,#f8fbff 0%,#eef5ff 100%);border-radius:16px;padding:18px 18px 16px;margin-bottom:20px}
-  .ai-lazy-title{font-size:14px;font-weight:800;color:var(--g800);margin-bottom:6px}
-  .ai-lazy-copy{font-size:13px;color:var(--g600);line-height:1.55;margin-bottom:14px}
-  .ai-dropzone{border:1px dashed var(--g300);background:white;border-radius:12px;padding:18px;text-align:center;cursor:pointer;transition:border 0.15s, background 0.15s}
-  .ai-dropzone:hover,.ai-dropzone.dragover{border-color:var(--blue);background:#f8fbff}
-  .ai-dropzone strong{display:block;font-size:14px;color:var(--g800);margin-bottom:4px}
-  .ai-dropzone span{font-size:12px;color:var(--g500)}
-  .ai-hidden-input{display:none}
-  .ai-file-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
-  .ai-file-chip{display:inline-flex;align-items:center;gap:6px;padding:7px 10px;border-radius:999px;background:white;border:1px solid var(--g200);font-size:12px;color:var(--g700)}
-  .ai-lazy-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px}
-  .btn-import-files{border:none;background:var(--g900);color:white;padding:11px 16px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer}
-  .btn-import-files:disabled{opacity:0.6;cursor:not-allowed}
-  .ai-optional-note{font-size:12px;color:var(--g500);margin-bottom:14px}
-  .ai-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
-  .ai-field{display:flex;flex-direction:column;gap:7px}
-  .ai-field.full{grid-column:1 / -1}
-  .ai-field label{font-size:12px;font-weight:700;color:var(--g600);text-transform:uppercase;letter-spacing:0.4px}
-  .ai-input,.ai-textarea,.ai-select{width:100%;border:1px solid var(--g300);border-radius:10px;padding:11px 13px;font:inherit;color:var(--g800);background:white;outline:none;transition:border 0.15s, box-shadow 0.15s}
-  .ai-input:focus,.ai-textarea:focus,.ai-select:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(0,102,204,0.08)}
-  .ai-textarea{min-height:110px;resize:vertical}
-  .ai-docs-header{margin-top:20px;padding-top:18px;border-top:1px solid var(--g200);display:flex;align-items:center;justify-content:space-between;gap:12px}
-  .ai-docs-title{font-size:13px;font-weight:700;color:var(--g700);text-transform:uppercase;letter-spacing:0.4px}
-  .btn-outline{border:1px solid var(--g300);background:white;color:var(--g700);padding:9px 14px;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.15s}
-  .btn-outline:hover{border-color:var(--blue);color:var(--blue)}
-  .ai-docs-list{display:flex;flex-direction:column;gap:14px;margin-top:16px}
-  .ai-doc-card{border:1px solid var(--g200);border-radius:14px;padding:16px;background:var(--g50)}
-  .ai-doc-card.empty{border-style:dashed;padding:22px;text-align:center;color:var(--g500);background:white}
-  .ai-doc-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
-  .ai-doc-title{font-size:14px;font-weight:700;color:var(--g800)}
-  .btn-danger-lite{border:none;background:#fee2e2;color:#b91c1c;padding:8px 12px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer}
-  .ai-doc-grid{display:grid;grid-template-columns:1.2fr 0.8fr 1fr;gap:12px;margin-bottom:12px}
-  .ai-actions{margin-top:20px;padding-top:18px;border-top:1px solid var(--g200);display:flex;align-items:center;justify-content:space-between;gap:16px}
-  .ai-feedback{font-size:13px;color:var(--g600);line-height:1.5}
-  .ai-feedback.error{color:var(--red)}
-  .ai-feedback.success{color:var(--green-dark)}
-  .btn-save-context{border:none;background:var(--blue);color:white;padding:12px 18px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;transition:background 0.15s}
-  .btn-save-context:hover{background:var(--blue-dark)}
-  .btn-save-context:disabled,.ai-input:disabled,.ai-textarea:disabled,.ai-select:disabled,.btn-outline:disabled{opacity:0.6;cursor:not-allowed}
-  .routes-panel{margin-top:20px}
-  .routes-body{padding:22px}
-  .routes-copy{font-size:13px;color:var(--g600);line-height:1.6;margin-bottom:16px}
-  .routes-actions-top{display:flex;justify-content:flex-end;margin-bottom:14px}
-  .routes-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
-  .route-card{border:1px solid var(--g200);border-radius:14px;padding:16px;background:var(--g50)}
-  .route-card.disabled{opacity:0.72}
-  .route-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
-  .route-title{font-size:14px;font-weight:700;color:var(--g800)}
-  .route-copy{font-size:12px;color:var(--g500);line-height:1.5;margin-bottom:12px}
-  .route-toggle{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:var(--g700)}
-  .route-inline{display:flex;gap:12px;align-items:flex-end}
-  .route-inline .ai-field{flex:1}
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--g500);
+      transition: all 0.3s ease;
+    }
 
-  @media(max-width:860px){
-    .stats-row{grid-template-columns:repeat(2,1fr)}
-    .main-grid{grid-template-columns:1fr;height:auto}
-    .panel-body{max-height:360px}
-    .ai-panel-body{grid-template-columns:1fr}
-    .ai-side{border-right:none;border-bottom:1px solid var(--g200)}
-    .ai-grid,.ai-doc-grid{grid-template-columns:1fr}
-    .routes-list{grid-template-columns:1fr}
-    .ai-actions{flex-direction:column;align-items:flex-start}
-    .ai-lazy-actions{flex-direction:column;align-items:flex-start}
-    .route-inline{flex-direction:column;align-items:stretch}
-  }
-</style>
+    .status-dot.connected {
+      background: var(--green);
+      box-shadow: 0 0 8px var(--green);
+    }
+
+    .status-dot.qr {
+      background: var(--orange);
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .status-text {
+      color: white;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .btn {
+      padding: 6px 12px;
+      font-size: 12px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: var(--blue);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: var(--blue-light);
+      transform: translateY(-1px);
+    }
+
+    .btn-danger {
+      background: var(--red);
+      color: white;
+    }
+
+    .btn-danger:hover {
+      background: #dc2626;
+    }
+
+    /* ──────────── SIDEBAR ESQUERDA ──────────── */
+    .sidebar-accounts {
+      grid-column: 1;
+      grid-row: 2;
+      background: var(--g900);
+      border-right: 1px solid var(--g700);
+      padding: 12px 8px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .account-item {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: var(--g800);
+      border: 2px solid transparent;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--g400);
+      transition: all 0.2s;
+      position: relative;
+    }
+
+    .account-item:hover {
+      background: var(--g700);
+      border-color: var(--g600);
+    }
+
+    .account-item.active {
+      background: var(--blue);
+      color: white;
+      border-color: var(--blue-light);
+    }
+
+    .account-item.active::after {
+      content: '';
+      position: absolute;
+      top: -4px;
+      right: -4px;
+      width: 8px;
+      height: 8px;
+      background: var(--green);
+      border-radius: 50%;
+    }
+
+    .btn-add-account {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: rgba(59, 130, 246, 0.1);
+      border: 2px dashed var(--blue);
+      color: var(--blue);
+      font-size: 20px;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-top: auto;
+    }
+
+    .btn-add-account:hover {
+      background: rgba(59, 130, 246, 0.2);
+    }
+
+    /* ──────────── MAIN AREA ──────────── */
+    .main-area {
+      grid-column: 2;
+      grid-row: 2;
+      display: flex;
+      flex-direction: column;
+      background: var(--g50);
+      overflow: hidden;
+    }
+
+    /* ──────────── TABS ──────────── */
+    .tabs {
+      display: flex;
+      gap: 0;
+      background: white;
+      border-bottom: 1px solid var(--g200);
+      padding: 0 20px;
+    }
+
+    .tab-button {
+      padding: 12px 16px;
+      border: none;
+      background: none;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--g500);
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+    }
+
+    .tab-button:hover {
+      color: var(--g700);
+    }
+
+    .tab-button.active {
+      color: var(--blue);
+      border-bottom-color: var(--blue);
+    }
+
+    /* ──────────── TAB CONTENT ──────────── */
+    .tab-content {
+      display: none;
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+    }
+
+    .tab-content.active {
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ──────────── LEADS TAB ──────────── */
+    .leads-container {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 12px;
+    }
+
+    .lead-card {
+      background: white;
+      border: 1px solid var(--g200);
+      border-radius: var(--radius);
+      padding: 16px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .lead-card:hover {
+      border-color: var(--blue);
+      transform: translateY(-2px);
+      box-shadow: var(--shadow);
+    }
+
+    .lead-card.active {
+      border-color: var(--blue);
+      background: var(--blue-glow);
+    }
+
+    .lead-status {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 4px 8px;
+      border-radius: 4px;
+      margin-bottom: 8px;
+    }
+
+    .lead-status.active {
+      background: rgba(16, 185, 129, 0.1);
+      color: var(--green);
+    }
+
+    .lead-status.paused {
+      background: rgba(245, 158, 11, 0.1);
+      color: var(--orange);
+    }
+
+    .lead-status.handed_off {
+      background: rgba(229, 231, 235, 0.5);
+      color: var(--g600);
+    }
+
+    .lead-phone {
+      font-weight: 600;
+      color: var(--g900);
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+
+    .lead-name {
+      color: var(--g600);
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+
+    .lead-preview {
+      color: var(--g500);
+      font-size: 11px;
+      line-height: 1.4;
+      max-height: 44px;
+      overflow: hidden;
+    }
+
+    /* ──────────── LOGS TAB ──────────── */
+    .logs-container {
+      font-family: 'Monaco', 'Courier New', monospace;
+      font-size: 11px;
+      line-height: 1.6;
+      max-width: 100%;
+    }
+
+    .log-line {
+      padding: 8px 12px;
+      border-left: 3px solid transparent;
+      background: var(--g100);
+      margin-bottom: 4px;
+      border-radius: 4px;
+      word-break: break-all;
+      color: var(--g700);
+    }
+
+    .log-line.info {
+      border-left-color: var(--blue);
+      background: rgba(59, 130, 246, 0.05);
+    }
+
+    .log-line.in {
+      border-left-color: var(--green);
+      background: rgba(16, 185, 129, 0.05);
+    }
+
+    .log-line.out {
+      border-left-color: var(--purple);
+      background: rgba(139, 92, 246, 0.05);
+    }
+
+    .log-line.error {
+      border-left-color: var(--red);
+      background: rgba(239, 68, 68, 0.05);
+      color: var(--red);
+    }
+
+    /* ──────────── SIDEBAR DIREITA (IA) ──────────── */
+    .sidebar-ai {
+      grid-column: 3;
+      grid-row: 2;
+      background: white;
+      border-left: 1px solid var(--g200);
+      padding: 16px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .ai-section-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--g900);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .form-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--g700);
+    }
+
+    .form-input,
+    .form-textarea {
+      padding: 8px 10px;
+      border: 1px solid var(--g300);
+      border-radius: 6px;
+      font-size: 11px;
+      font-family: inherit;
+      color: var(--g900);
+    }
+
+    .form-input:focus,
+    .form-textarea:focus {
+      outline: none;
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px var(--blue-glow);
+    }
+
+    .form-textarea {
+      resize: vertical;
+      min-height: 60px;
+    }
+
+    /* ──────────── QR OVERLAY ──────────── */
+    .qr-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(8px);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .qr-overlay.active {
+      display: flex;
+    }
+
+    .qr-card {
+      background: white;
+      border-radius: 20px;
+      padding: 48px;
+      text-align: center;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+      max-width: 480px;
+    }
+
+    .qr-card-title {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      color: var(--g900);
+    }
+
+    .qr-card-desc {
+      font-size: 13px;
+      color: var(--g600);
+      margin-bottom: 24px;
+    }
+
+    #qrImage {
+      width: 280px;
+      height: 280px;
+      margin: 0 auto 24px;
+      border-radius: 12px;
+      background: var(--g100);
+    }
+
+    .qr-steps {
+      text-align: left;
+      font-size: 12px;
+      color: var(--g700);
+      line-height: 1.8;
+      background: var(--g50);
+      padding: 12px;
+      border-radius: 8px;
+      margin-top: 16px;
+    }
+
+    /* ──────────── RESPONSIVO ──────────── */
+    @media (max-width: 1200px) {
+      .layout {
+        grid-template-columns: 56px 1fr;
+      }
+
+      .sidebar-ai {
+        display: none;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar-accounts {
+        flex-direction: row;
+        height: auto;
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding: 8px 12px;
+        gap: 12px;
+        grid-column: 1 / -1;
+        grid-row: auto;
+      }
+
+      .account-item {
+        flex-shrink: 0;
+      }
+
+      .btn-add-account {
+        margin-top: 0;
+        margin-left: auto;
+      }
+
+      .leads-container {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
 </head>
 <body>
-
-<div class="topbar">
-  <div class="topbar-left">
-    <div class="topbar-logo">U-All <span>SDR Agent</span></div>
-    <div class="topbar-badge">ChatGPT</div>
-  </div>
-  <div class="topbar-right">
-    <button class="btn-sm btn-reconnect" id="btnReconnect" onclick="socket.emit('reconnect-whatsapp')">Reconectar</button>
-    <button class="btn-sm btn-reset" id="btnReset" onclick="if(confirm('Gerar novo QR Code?')) socket.emit('reset-session')">Resetar Sessao</button>
-    <div class="status-pill">
-      <div class="status-dot" id="statusDot"></div>
-      <span id="statusText">Conectando...</span>
-    </div>
-  </div>
-</div>
-
-<div class="qr-overlay" id="qrOverlay">
-  <div class="qr-card">
-    <h2>Conectar WhatsApp</h2>
-    <p>Escaneie o QR Code para ativar o agente SDR</p>
-    <img id="qrImage" src="" alt="QR Code" width="280" height="280">
-    <div class="qr-steps">
-      <b>1.</b> Abra o WhatsApp no celular<br>
-      <b>2.</b> Toque em <b>Dispositivos vinculados</b><br>
-      <b>3.</b> Toque em <b>Vincular dispositivo</b><br>
-      <b>4.</b> Aponte a camera para o QR Code
-    </div>
-  </div>
-</div>
-
-<div class="container">
-  <div class="stats-row">
-    <div class="stat-card"><div class="label">Total Leads</div><div class="value" id="statTotal">0</div></div>
-    <div class="stat-card blue"><div class="label">Bot Ativo</div><div class="value" id="statActive">0</div></div>
-    <div class="stat-card purple"><div class="label">Voce Assumiu</div><div class="value" id="statPaused">0</div></div>
-    <div class="stat-card green"><div class="label">Transferidos</div><div class="value" id="statHandedOff">0</div></div>
-  </div>
-
-  <div class="main-grid">
-    <div class="panel">
-      <div class="panel-header"><span>Leads</span><span id="leadsCount" style="color:var(--g400);font-weight:400;font-size:13px">0</span></div>
-      <div class="panel-body" id="leadsList">
-        <div class="empty-state"><div class="empty-icon">📭</div>Nenhum lead ainda.<br>Aguardando mensagens...</div>
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <div class="topbar-left">
+      <div class="logo">
+        <div class="logo-icon">📱</div>
+        <span>U-All SDR</span>
+      </div>
+      <div class="current-account">
+        <span>Conta:</span>
+        <strong id="currentAccountDisplay">-</strong>
       </div>
     </div>
-
-    <div class="panel" id="convPanel">
-      <div class="panel-header" id="convHeader"><span>Conversa</span></div>
-      <div class="conv-controls" id="convControls"></div>
-      <div class="conv-info-bar" id="convInfoBar" style="display:none"></div>
-      <div class="panel-body" id="convBody">
-        <div class="conv-empty"><div class="empty-icon">💬</div>Selecione um lead para ver a conversa</div>
+    <div class="topbar-right">
+      <div class="status-indicator">
+        <div class="status-dot" id="statusDot"></div>
+        <div class="status-text" id="statusText">Desconectado</div>
       </div>
-      <div class="msg-input-bar" id="msgInputBar">
-        <input type="text" class="msg-input" id="msgInput" placeholder="Digite sua mensagem..." onkeydown="if(event.key==='Enter')sendHumanMessage()">
-        <button class="btn-send" onclick="sendHumanMessage()">Enviar</button>
+      <button id="btnReconnect" class="btn btn-primary">Reconectar</button>
+      <button id="btnReset" class="btn btn-danger">Resetar</button>
+    </div>
+  </div>
+
+  <!-- QR OVERLAY -->
+  <div id="qrOverlay" class="qr-overlay">
+    <div class="qr-card">
+      <div class="qr-card-title">Escaneie com WhatsApp</div>
+      <div class="qr-card-desc">Use um outro celular para escanear e conectar esta conta</div>
+      <img id="qrImage" />
+      <div class="qr-steps">
+        1. Abra WhatsApp no seu celular<br />
+        2. Vá em Configurações → Aparelhos Conectados<br />
+        3. Clique em "Conectar um aparelho"<br />
+        4. Aponte a câmera para o QR Code acima
       </div>
     </div>
   </div>
 
-  <div class="panel ai-panel">
-    <div class="panel-header">
-      <span>Configuracao da IA da Sessao WhatsApp</span>
-      <span id="aiContextHeaderStatus" style="color:var(--g400);font-weight:400;font-size:13px">Aguardando sessao</span>
-    </div>
-    <div class="ai-panel-body">
-      <div class="ai-side">
-        <div class="ai-side-label">Numero vinculado ao QR Code</div>
-        <div class="ai-connected-number" id="aiConnectedNumber">Sem sessao conectada</div>
-        <div class="ai-side-text" id="aiConnectedName">Conecte um WhatsApp para definir o comportamento da IA desta conta.</div>
-        <div class="ai-side-badge" id="aiContextSessionStatus">Sem sessao</div>
-        <div class="ai-side-text" id="aiSaveHint">Tudo que voce salvar aqui fica vinculado ao numero autenticado e entra no contexto das proximas respostas da IA.</div>
+  <!-- MAIN LAYOUT -->
+  <div class="layout">
+    <!-- SIDEBAR ESQUERDA (CONTAS) -->
+    <div class="sidebar-accounts" id="sidebarAccounts"></div>
+
+    <!-- MAIN AREA -->
+    <div class="main-area">
+      <!-- TABS -->
+      <div class="tabs">
+        <button class="tab-button active" data-tab="leads">📋 Leads</button>
+        <button class="tab-button" data-tab="logs">📝 Logs</button>
+        <button class="tab-button" data-tab="config">⚙️ Configurações</button>
       </div>
-      <div class="ai-editor">
-        <div class="ai-lazy-box">
-          <div class="ai-lazy-title">Modo preguiçoso</div>
-          <div class="ai-lazy-copy">Jogue aqui PDFs, DOC/DOCX, planilhas Excel, arquivos Markdown, TXT ou CSV. O sistema extrai o texto e adiciona sozinho no contexto da IA desta sessão.</div>
-          <label class="ai-dropzone" id="aiDropzone" for="aiLazyFiles">
-            <strong>Arraste arquivos aqui ou clique para selecionar</strong>
-            <span>Suporta múltiplos arquivos por vez. Preenchimento manual abaixo é opcional.</span>
-          </label>
-          <input type="file" id="aiLazyFiles" class="ai-hidden-input ai-config-field" multiple accept=".pdf,.doc,.docx,.md,.markdown,.txt,.csv,.xlsx,.xls,.json" onchange="handleAiFilesSelected(this.files)">
-          <div class="ai-file-list" id="aiPendingFiles"></div>
-          <div class="ai-lazy-actions">
-            <div class="ai-feedback" id="aiImportFeedback">Importe arquivos e deixe a IA montar o contexto sem precisar escrever tudo na mão.</div>
-            <button class="btn-import-files ai-config-field" id="btnImportAiFiles" onclick="importAiFiles()">Importar arquivos</button>
-          </div>
-        </div>
 
-        <div class="ai-optional-note">Campos manuais abaixo são opcionais. Use só se quiser ajustar a persona depois da importação.</div>
+      <!-- LEADS TAB -->
+      <div class="tab-content active" id="leadsTab">
+        <div class="leads-container" id="leadsList"></div>
+      </div>
 
-        <div class="ai-grid">
-          <div class="ai-field">
-            <label for="aiProfileName">Nome do perfil</label>
-            <input class="ai-input ai-config-field" id="aiProfileName" placeholder="Ex.: SDR Matriz">
-          </div>
-          <div class="ai-field">
-            <label for="aiAttendantName">Nome do atendente</label>
-            <input class="ai-input ai-config-field" id="aiAttendantName" placeholder="Ex.: Larissa">
-          </div>
-          <div class="ai-field">
-            <label for="aiCompanyName">Nome da empresa</label>
-            <input class="ai-input ai-config-field" id="aiCompanyName" placeholder="Ex.: U-All Solutions">
-          </div>
-          <div class="ai-field">
-            <label for="aiPersonaName">Nome/persona da IA</label>
-            <input class="ai-input ai-config-field" id="aiPersonaName" placeholder="Ex.: Sofia">
-          </div>
-          <div class="ai-field full">
-            <label for="aiRole">Papel da IA</label>
-            <input class="ai-input ai-config-field" id="aiRole" placeholder="Ex.: SDR comercial da empresa, atendimento inicial, pre-vendas">
-          </div>
-          <div class="ai-field full">
-            <label for="aiCompanyDescription">Como a empresa deve ser apresentada</label>
-            <textarea class="ai-textarea ai-config-field" id="aiCompanyDescription" placeholder="Descreva a empresa, diferenciais, posicionamento, produtos e como a IA deve representar a marca."></textarea>
-          </div>
-          <div class="ai-field full">
-            <label for="aiObjectives">Objetivos da IA</label>
-            <textarea class="ai-textarea ai-config-field" id="aiObjectives" placeholder="Ex.: qualificar lead, agendar reuniao, coletar dados, encaminhar ao comercial."></textarea>
-          </div>
-          <div class="ai-field full">
-            <label for="aiTone">Tom de voz</label>
-            <textarea class="ai-textarea ai-config-field" id="aiTone" placeholder="Ex.: mais humano, mais direto, tecnico, consultivo, informal, premium."></textarea>
-          </div>
-          <div class="ai-field full">
-            <label for="aiBehavior">Como a IA deve se comportar</label>
-            <textarea class="ai-textarea ai-config-field" id="aiBehavior" placeholder="Explique como deve conduzir conversas, como responder, como insistir, o que priorizar e como parecer mais com a empresa."></textarea>
-          </div>
-          <div class="ai-field">
-            <label for="aiAudience">Perfil do publico</label>
-            <textarea class="ai-textarea ai-config-field" id="aiAudience" placeholder="Quem costuma falar com a empresa?"></textarea>
-          </div>
-          <div class="ai-field">
-            <label for="aiRestrictions">Limites e assuntos a evitar</label>
-            <textarea class="ai-textarea ai-config-field" id="aiRestrictions" placeholder="Ex.: nao falar preco, nao prometer prazo, evitar jargao tecnico."></textarea>
-          </div>
-          <div class="ai-field full">
-            <label for="aiSalesScript">Script comercial e orientacoes</label>
-            <textarea class="ai-textarea ai-config-field" id="aiSalesScript" placeholder="Argumentos, perguntas obrigatorias, etapas do atendimento e regras comerciais."></textarea>
-          </div>
-          <div class="ai-field full">
-            <label for="aiKnowledgeBase">Base de conhecimento adicional</label>
-            <textarea class="ai-textarea ai-config-field" id="aiKnowledgeBase" placeholder="Cole aqui informacoes institucionais, processos, FAQs, politicas, objeções, diferenciais e outros textos base."></textarea>
-          </div>
-        </div>
+      <!-- LOGS TAB -->
+      <div class="tab-content" id="logsTab">
+        <div class="logs-container" id="logsList"></div>
+      </div>
 
-        <div class="ai-docs-header">
-          <div class="ai-docs-title">Documentos e textos para a IA analisar</div>
-          <button class="btn-outline ai-config-field" id="btnAddAiDocument" onclick="addAiDocument()">Adicionar documento</button>
-        </div>
-        <div class="ai-docs-list" id="aiDocumentsList"></div>
-
-        <div class="ai-actions">
-          <div class="ai-feedback" id="aiContextFeedback">Conecte um numero via QR Code para vincular este contexto a uma sessao especifica.</div>
-          <button class="btn-save-context ai-config-field" id="btnSaveAiContext" onclick="saveAiContext()">Salvar contexto da sessao</button>
+      <!-- CONFIGURAÇÕES TAB -->
+      <div class="tab-content" id="configTab">
+        <div style="max-width: 600px;">
+          <h3 style="margin-bottom: 16px; color: var(--g900);">Configurações da IA</h3>
+          <p style="color: var(--g600); margin-bottom: 16px; font-size: 12px;">
+            Em desenvolvimento. Configure o contexto e comportamento da IA aqui.
+          </p>
         </div>
       </div>
     </div>
-  </div>
 
-  <div class="panel routes-panel">
-    <div class="panel-header">
-      <span>Grupos e avisos</span>
-      <span id="routesHeaderStatus" style="color:var(--g400);font-weight:400;font-size:13px">Aguardando sessao</span>
-    </div>
-    <div class="routes-body">
-      <div class="routes-copy">Escolha no painel para qual grupo cada tipo de informacao deve ser enviado. Tudo fica salvo no banco por numero conectado.</div>
-      <div class="routes-actions-top">
-        <button class="btn-outline route-config-field" onclick="refreshWhatsAppGroups()">Atualizar grupos</button>
+    <!-- SIDEBAR DIREITA (IA) -->
+    <div class="sidebar-ai">
+      <div>
+        <div class="ai-section-title">Status</div>
+        <div style="font-size: 11px; color: var(--g600);" id="aiConnectedNumber">-</div>
       </div>
-      <div class="routes-list" id="notificationRoutesList"></div>
-      <div class="ai-actions">
-        <div class="ai-feedback" id="notificationRoutesFeedback">Conecte um WhatsApp para configurar os grupos de destino.</div>
-        <button class="btn-save-context route-config-field" id="btnSaveNotificationRoutes" onclick="saveNotificationRoutesFront()">Salvar grupos e avisos</button>
+
+      <div>
+        <div class="ai-section-title">Contexto IA</div>
+        <div class="form-group">
+          <label class="form-label">Nome da IA</label>
+          <input type="text" class="form-input" id="aiName" placeholder="ex: Paula" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Empresa</label>
+          <input type="text" class="form-input" id="companyName" placeholder="ex: U-All Solutions" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Descrição</label>
+          <textarea class="form-textarea" id="companyDesc" placeholder="Descrição da empresa..."></textarea>
+        </div>
       </div>
+
+      <button class="btn btn-primary" style="width: 100%;">Salvar Contexto</button>
     </div>
   </div>
 
-  <div class="panel log-panel">
-    <div class="panel-header"><span>Log em tempo real</span></div>
-    <div class="log-body" id="logBody"><div style="color:var(--g400);font-style:italic">Aguardando atividade...</div></div>
-  </div>
-</div>
+  <script>
+    var socket = io();
+    var selectedAccount = null;
+    var logLines = [];
+    var maxLogLines = 100;
 
-<script>
-var socket = io();
-var selectedPhone = null;
-var selectedConv = null;
-var aiContextState = { account: null, profile: null };
-var aiPendingUploadFiles = [];
-var notificationRoutesState = { routes: [], groups: [] };
+    // ────────── Socket.IO Events ──────────
+    socket.on("status", function(status) {
+      updateStatus(status);
+    });
 
-simplifyAiForm();
+    socket.on("qr", function(qrDataUrl) {
+      document.getElementById("qrOverlay").classList.add("active");
+      document.getElementById("qrImage").src = qrDataUrl;
+    });
 
-// ── Status ──
-socket.on("status", function(s) {
-  var dot = document.getElementById("statusDot");
-  var text = document.getElementById("statusText");
-  var overlay = document.getElementById("qrOverlay");
-  var btnR = document.getElementById("btnReconnect");
-  var btnX = document.getElementById("btnReset");
-  dot.className = "status-dot " + s;
-  if (s === "connected") {
-    text.textContent = "WhatsApp Online";
-    overlay.classList.remove("active");
-    btnR.classList.remove("visible"); btnX.classList.remove("visible");
-  } else if (s === "qr") {
-    text.textContent = "Aguardando QR Code...";
-    overlay.classList.add("active");
-    btnR.classList.remove("visible"); btnX.classList.add("visible");
-  } else {
-    text.textContent = "Desconectado";
-    overlay.classList.remove("active");
-    btnR.classList.add("visible"); btnX.classList.add("visible");
-  }
-  loadAiContext();
-  loadNotificationRoutes();
-});
+    socket.on("accounts", function(accounts) {
+      renderAccounts(accounts);
+    });
 
-socket.on("qr", function(url) { document.getElementById("qrImage").src = url; });
+    socket.on("selectedAccount", function(accountPhone) {
+      selectedAccount = accountPhone;
+      document.getElementById("currentAccountDisplay").textContent = formatPhone(accountPhone);
+      updateAccountSelection();
+    });
 
-// ── Stats ──
-socket.on("stats", function(s) {
-  document.getElementById("statTotal").textContent = s.total;
-  document.getElementById("statActive").textContent = s.active;
-  document.getElementById("statPaused").textContent = s.paused;
-  document.getElementById("statHandedOff").textContent = s.handedOff;
-});
+    socket.on("leads", function(leads) {
+      renderLeads(leads);
+    });
 
-// ── Leads list ──
-socket.on("leads", function(leads) {
-  var el = document.getElementById("leadsList");
-  document.getElementById("leadsCount").textContent = leads.length;
-  if (!leads.length) {
-    el.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div>Nenhum lead ainda.<br>Aguardando mensagens...</div>';
-    return;
-  }
-  leads.sort(function(a,b) { return new Date(b.updatedAt) - new Date(a.updatedAt); });
-  el.innerHTML = leads.map(function(l) {
-    var phone = l.phone;
-    var realNum = l.contactNumber || phone;
-    var display = formatPhoneDisplay(realNum);
-    var name = l.name || l.company || "";
-    var preview = l.lastMessage ? l.lastMessage.substring(0,55) : "";
-    var active = selectedPhone === phone ? " active" : "";
-    var statusMap = {active:"Bot Ativo",handed_off:"Transferido",paused:"Voce"};
-    return '<div class="lead-item'+active+'" onclick="selectLead(\''+phone+'\')">' +
-      '<div class="lead-top"><span class="lead-phone">'+display+'</span>' +
-      '<span class="lead-status '+l.status+'">'+(statusMap[l.status]||l.status)+'</span></div>' +
-      (name ? '<div class="lead-name">'+esc(name)+(l.segment?" · "+esc(l.segment):"")+'</div>' : "") +
-      (preview ? '<div class="lead-preview">'+esc(preview)+'</div>' : "") +
-      '</div>';
-  }).join("");
-});
+    socket.on("log", function(entry) {
+      addLogLine(entry.type, entry.text);
+    });
 
-function esc(s){var d=document.createElement("div");d.textContent=s;return d.innerHTML}
+    socket.on("conversation-detail", function(conv) {
+      // Mostrar detalhes da conversa se necessário
+    });
 
-function formatPhoneDisplay(num) {
-  if (!num) return "";
-  num = String(num).replace(/[^0-9]/g, "");
-  if (num.length >= 12 && num.length <= 13 && num.startsWith("55")) {
-    var ddd = num.substring(2, 4);
-    var numero = num.substring(4);
-    return "(" + ddd + ") " + numero.replace(/(\d{4,5})(\d{4})$/, "$1-$2");
-  }
-  return num.replace(/^55/,"").replace(/(\d{2})(\d{5})(\d{4})/,"($1) $2-$3");
-}
-
-function buildEmptyAiProfile(accountPhone) {
-  return {
-    accountPhone: accountPhone || null,
-    sessionKey: "default",
-    profileName: "",
-    attendantName: "",
-    companyName: "",
-    companyDescription: "",
-    aiName: "",
-    aiRole: "",
-    toneOfVoice: "",
-    behaviorGuidelines: "",
-    objectives: "",
-    audienceProfile: "",
-    forbiddenTopics: "",
-    salesScript: "",
-    knowledgeBase: "",
-    documents: [],
-    isActive: true,
-  };
-}
-
-function simplifyAiForm() {
-  var hiddenIds = [
-    "aiProfileName",
-    "aiCompanyName",
-    "aiPersonaName",
-    "aiCompanyDescription",
-    "aiObjectives",
-    "aiTone",
-    "aiBehavior",
-    "aiAudience",
-    "aiRestrictions",
-    "aiSalesScript",
-    "aiKnowledgeBase"
-  ];
-  var roleInput = document.getElementById("aiRole");
-  var roleLabel = document.querySelector('label[for="aiRole"]');
-  var note = document.querySelector(".ai-optional-note");
-
-  for (var i = 0; i < hiddenIds.length; i++) {
-    var field = document.getElementById(hiddenIds[i]);
-    if (field && field.closest(".ai-field")) {
-      field.closest(".ai-field").style.display = "none";
+    // ────────── Helper Functions ──────────
+    function formatPhone(phone) {
+      if (!phone) return "N/A";
+      var num = String(phone).replace(/[^0-9]/g, "");
+      if (num.length >= 12 && num.length <= 13 && num.startsWith("55")) {
+        var ddd = num.substring(2, 4);
+        var numero = num.substring(4);
+        return "(" + ddd + ") " + numero.replace(/(\d{4,5})(\d{4})$/, "$1-$2");
+      }
+      return num;
     }
-  }
 
-  if (note) {
-    note.textContent = "Para configurar rapido, basta definir o nome do atendente, dizer o que a IA faz e jogar os arquivos. O resto vem do material importado.";
-  }
+    function updateStatus(status) {
+      var dot = document.getElementById("statusDot");
+      var text = document.getElementById("statusText");
+      var overlay = document.getElementById("qrOverlay");
 
-  if (roleInput) {
-    roleInput.placeholder = "Ex.: vendedor, assistente de suporte, atendimento inicial";
-  }
+      dot.classList.remove("connected", "qr");
+      text.textContent = "Desconectado";
 
-  if (roleLabel) {
-    roleLabel.textContent = "O que a IA faz";
-  }
-}
+      if (status === "connected") {
+        dot.classList.add("connected");
+        text.textContent = "✅ Conectado";
+        overlay.classList.remove("active");
+        document.getElementById("btnReconnect").style.display = "none";
+        document.getElementById("btnReset").style.display = "none";
+      } else if (status === "qr") {
+        dot.classList.add("qr");
+        text.textContent = "Escaneie o QR Code";
+        overlay.classList.add("active");
+        document.getElementById("btnReconnect").style.display = "inline-block";
+        document.getElementById("btnReset").style.display = "inline-block";
+      } else {
+        text.textContent = "Desconectado";
+        overlay.classList.remove("active");
+        document.getElementById("btnReconnect").style.display = "inline-block";
+        document.getElementById("btnReset").style.display = "inline-block";
+      }
+    }
 
-function setAiContextFeedback(text, tone) {
-  var el = document.getElementById("aiContextFeedback");
-  el.textContent = text;
-  el.className = "ai-feedback" + (tone ? " " + tone : "");
-}
+    function renderAccounts(accounts) {
+      var sidebar = document.getElementById("sidebarAccounts");
+      sidebar.innerHTML = "";
 
-function setAiImportFeedback(text, tone) {
-  var el = document.getElementById("aiImportFeedback");
-  el.textContent = text;
-  el.className = "ai-feedback" + (tone ? " " + tone : "");
-}
+      accounts.forEach(function(phone) {
+        var btn = document.createElement("button");
+        btn.className = "account-item";
+        btn.textContent = phone.substring(phone.length - 2).toUpperCase();
+        btn.title = formatPhone(phone);
+        btn.onclick = function() {
+          socket.emit("select-account", phone);
+        };
+        if (phone === selectedAccount) {
+          btn.classList.add("active");
+        }
+        sidebar.appendChild(btn);
+      });
 
-function getAiStatusLabel(status) {
-  if (status === "ready" || status === "connected") return "Sessao pronta";
-  if (status === "authenticating" || status === "qr") return "Aguardando QR";
-  return "Sem sessao";
-}
-
-function toggleAiContextFields(disabled) {
-  var fields = document.querySelectorAll(".ai-config-field");
-  for (var i = 0; i < fields.length; i++) {
-    fields[i].disabled = disabled;
-  }
-}
-
-function renderAiPendingFiles() {
-  var el = document.getElementById("aiPendingFiles");
-  if (!aiPendingUploadFiles.length) {
-    el.innerHTML = "";
-    return;
-  }
-  el.innerHTML = aiPendingUploadFiles.map(function(file) {
-    return '<div class="ai-file-chip">' + esc(file.name) + ' <span>(' + Math.max(1, Math.round(file.size / 1024)) + ' KB)</span></div>';
-  }).join("");
-}
-
-function handleAiFilesSelected(fileList) {
-  aiPendingUploadFiles = Array.prototype.slice.call(fileList || []);
-  renderAiPendingFiles();
-  if (aiPendingUploadFiles.length) {
-    setAiImportFeedback(aiPendingUploadFiles.length + " arquivo(s) pronto(s) para importação.", "success");
-  } else {
-    setAiImportFeedback("Importe arquivos e deixe a IA montar o contexto sem precisar escrever tudo na mão.", "");
-  }
-}
-
-function setAiFieldValue(id, value) {
-  document.getElementById(id).value = value || "";
-}
-
-function ensureAiProfile() {
-  if (!aiContextState.profile) {
-    aiContextState.profile = buildEmptyAiProfile(aiContextState.account && aiContextState.account.phone);
-  }
-  if (!Array.isArray(aiContextState.profile.documents)) {
-    aiContextState.profile.documents = [];
-  }
-  return aiContextState.profile;
-}
-
-function hydrateAiContextForm() {
-  var account = aiContextState.account || {};
-  var profile = ensureAiProfile();
-  var connected = !!account.phone;
-
-  document.getElementById("aiContextHeaderStatus").textContent = connected ? formatPhoneDisplay(account.phone) : "Aguardando sessao";
-  document.getElementById("aiConnectedNumber").textContent = connected ? formatPhoneDisplay(account.phone) : "Sem sessao conectada";
-  document.getElementById("aiConnectedName").textContent = connected
-    ? ((account.name || "WhatsApp conectado") + " • " + getAiStatusLabel(account.status))
-    : "Conecte um WhatsApp para definir o comportamento da IA desta conta.";
-  document.getElementById("aiContextSessionStatus").textContent = getAiStatusLabel(account.status);
-
-  setAiFieldValue("aiProfileName", profile.profileName);
-  setAiFieldValue("aiAttendantName", profile.attendantName);
-  setAiFieldValue("aiCompanyName", profile.companyName);
-  setAiFieldValue("aiPersonaName", profile.aiName);
-  setAiFieldValue("aiRole", profile.aiRole);
-  setAiFieldValue("aiCompanyDescription", profile.companyDescription);
-  setAiFieldValue("aiObjectives", profile.objectives);
-  setAiFieldValue("aiTone", profile.toneOfVoice);
-  setAiFieldValue("aiBehavior", profile.behaviorGuidelines);
-  setAiFieldValue("aiAudience", profile.audienceProfile);
-  setAiFieldValue("aiRestrictions", profile.forbiddenTopics);
-  setAiFieldValue("aiSalesScript", profile.salesScript);
-  setAiFieldValue("aiKnowledgeBase", profile.knowledgeBase);
-
-  renderAiDocuments();
-  toggleAiContextFields(!connected);
-
-  if (connected) {
-    setAiContextFeedback("Edite o comportamento da IA desta sessao e clique em salvar. As proximas respostas ja passam a usar esse contexto.", "success");
-  } else {
-    setAiContextFeedback("Conecte um numero via QR Code para vincular este contexto a uma sessao especifica.", "");
-  }
-}
-
-function renderAiDocuments() {
-  var profile = ensureAiProfile();
-  var list = document.getElementById("aiDocumentsList");
-  var documents = profile.documents || [];
-
-  if (!documents.length) {
-    list.innerHTML = '<div class="ai-doc-card empty">Nenhum documento adicionado ainda. Use o botao acima para incluir textos, procedimentos, FAQs e materiais da empresa.</div>';
-    return;
-  }
-
-  list.innerHTML = documents.map(function(doc, index) {
-    return '<div class="ai-doc-card">' +
-      '<div class="ai-doc-top">' +
-        '<div class="ai-doc-title">Documento ' + (index + 1) + '</div>' +
-        '<button class="btn-danger-lite ai-config-field" onclick="removeAiDocument(' + index + ')">Remover</button>' +
-      '</div>' +
-      '<div class="ai-doc-grid">' +
-        '<div class="ai-field"><label>Titulo</label><input class="ai-input ai-config-field" value="' + esc(doc.title || "") + '" oninput="updateAiDocument(' + index + ', \'title\', this.value)"></div>' +
-        '<div class="ai-field"><label>Tipo</label><input class="ai-input ai-config-field" value="' + esc(doc.type || "texto") + '" oninput="updateAiDocument(' + index + ', \'type\', this.value)"></div>' +
-        '<div class="ai-field"><label>Fonte</label><input class="ai-input ai-config-field" value="' + esc(doc.source || "") + '" oninput="updateAiDocument(' + index + ', \'source\', this.value)"></div>' +
-      '</div>' +
-      '<div class="ai-field"><label>Conteudo</label><textarea class="ai-textarea ai-config-field" oninput="updateAiDocument(' + index + ', \'content\', this.value)">' + esc(doc.content || "") + '</textarea></div>' +
-    '</div>';
-  }).join("");
-
-  toggleAiContextFields(!(aiContextState.account && aiContextState.account.phone));
-}
-
-function addAiDocument() {
-  var profile = ensureAiProfile();
-  profile.documents.push({ title: "", type: "texto", source: "", content: "" });
-  renderAiDocuments();
-}
-
-function updateAiDocument(index, field, value) {
-  var profile = ensureAiProfile();
-  if (!profile.documents[index]) return;
-  profile.documents[index][field] = value;
-}
-
-function removeAiDocument(index) {
-  var profile = ensureAiProfile();
-  profile.documents.splice(index, 1);
-  renderAiDocuments();
-}
-
-function collectAiContextPayload() {
-  var profile = ensureAiProfile();
-  return {
-    attendantName: document.getElementById("aiAttendantName").value.trim(),
-    aiRole: document.getElementById("aiRole").value.trim(),
-    documents: (profile.documents || []).map(function(doc) {
-      return {
-        title: (doc.title || "").trim(),
-        type: (doc.type || "").trim(),
-        source: (doc.source || "").trim(),
-        content: (doc.content || "").trim(),
+      var addBtn = document.createElement("button");
+      addBtn.className = "btn-add-account";
+      addBtn.textContent = "+";
+      addBtn.title = "Adicionar novo número";
+      addBtn.onclick = function() {
+        socket.emit("reconnect-whatsapp", selectedAccount);
       };
-    }).filter(function(doc) {
-      return doc.title || doc.content || doc.source;
-    }),
-    isActive: true,
-  };
-}
-
-async function loadAiContext() {
-  try {
-    var response = await fetch("/api/ai-context");
-    var data = await response.json();
-    if (!response.ok || !data.success) {
-      throw new Error(data.error || "Falha ao carregar contexto da IA.");
+      sidebar.appendChild(addBtn);
     }
 
-    aiContextState.account = data.account || null;
-    aiContextState.profile = data.profile || buildEmptyAiProfile(data.account && data.account.phone);
-    hydrateAiContextForm();
-  } catch (error) {
-    setAiContextFeedback(error.message || "Falha ao carregar contexto da IA.", "error");
-  }
-}
-
-async function saveAiContext() {
-  if (!aiContextState.account || !aiContextState.account.phone) {
-    setAiContextFeedback("Conecte um WhatsApp por QR Code antes de salvar este contexto.", "error");
-    return;
-  }
-
-  var button = document.getElementById("btnSaveAiContext");
-  var originalText = button.textContent;
-  button.disabled = true;
-  button.textContent = "Salvando...";
-
-  try {
-    var response = await fetch("/api/ai-context", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(collectAiContextPayload()),
-    });
-    var data = await response.json();
-    if (!response.ok || !data.success) {
-      throw new Error(data.error || "Falha ao salvar contexto da IA.");
+    function updateAccountSelection() {
+      document.querySelectorAll(".account-item").forEach(function(btn) {
+        btn.classList.remove("active");
+        if (btn.textContent === selectedAccount.substring(selectedAccount.length - 2).toUpperCase()) {
+          btn.classList.add("active");
+        }
+      });
     }
 
-    aiContextState.account = data.account || aiContextState.account;
-    aiContextState.profile = data.profile || aiContextState.profile;
-    hydrateAiContextForm();
-    setAiContextFeedback("Contexto salvo. A IA desta sessao passa a usar essas informacoes nas proximas respostas.", "success");
-  } catch (error) {
-    setAiContextFeedback(error.message || "Falha ao salvar contexto da IA.", "error");
-  } finally {
-    button.disabled = false;
-    button.textContent = originalText;
-  }
-}
+    function renderLeads(leads) {
+      var list = document.getElementById("leadsList");
+      list.innerHTML = "";
 
-async function importAiFiles() {
-  if (!aiContextState.account || !aiContextState.account.phone) {
-    setAiImportFeedback("Conecte um WhatsApp por QR Code antes de importar arquivos.", "error");
-    return;
-  }
+      if (!leads || leads.length === 0) {
+        list.innerHTML = "<p style='color: var(--g600); grid-column: 1 / -1; text-align: center; padding: 40px 20px;'>Nenhum lead conectado ainda.</p>";
+        return;
+      }
 
-  if (!aiPendingUploadFiles.length) {
-    setAiImportFeedback("Selecione ou arraste ao menos um arquivo.", "error");
-    return;
-  }
+      leads.forEach(function(lead) {
+        var card = document.createElement("div");
+        card.className = "lead-card";
 
-  var button = document.getElementById("btnImportAiFiles");
-  var originalText = button.textContent;
-  button.disabled = true;
-  button.textContent = "Importando...";
+        var status = document.createElement("span");
+        status.className = "lead-status " + lead.status;
+        status.textContent = lead.status === "active" && lead.botActive ? "🤖 Bot Ativo" :
+                              lead.status === "paused" ? "⏸ Pausado" : "✅ Transferido";
 
-  try {
-    var formData = new FormData();
-    for (var i = 0; i < aiPendingUploadFiles.length; i++) {
-      formData.append("files", aiPendingUploadFiles[i]);
+        var phone = document.createElement("div");
+        phone.className = "lead-phone";
+        phone.textContent = formatPhone(lead.phone);
+
+        var name = document.createElement("div");
+        name.className = "lead-name";
+        name.textContent = lead.name || "Sem nome";
+
+        var preview = document.createElement("div");
+        preview.className = "lead-preview";
+        preview.textContent = lead.lastMessage ? lead.lastMessage.substring(0, 55) : "-";
+
+        card.appendChild(status);
+        card.appendChild(phone);
+        card.appendChild(name);
+        card.appendChild(preview);
+
+        card.onclick = function() {
+          socket.emit("get-conversation", lead.phone);
+        };
+
+        list.appendChild(card);
+      });
     }
 
-    var response = await fetch("/api/ai-context/import", {
-      method: "POST",
-      body: formData,
-    });
-    var data = await response.json();
-    if (!response.ok || !data.success) {
-      throw new Error(data.error || "Falha ao importar arquivos.");
+    function addLogLine(type, text) {
+      logLines.push({ type: type, text: text });
+      if (logLines.length > maxLogLines) {
+        logLines.shift();
+      }
+
+      var list = document.getElementById("logsList");
+      var line = document.createElement("div");
+      line.className = "log-line " + type;
+      line.textContent = text;
+      list.appendChild(line);
+      list.scrollTop = list.scrollHeight;
     }
 
-    aiPendingUploadFiles = [];
-    document.getElementById("aiLazyFiles").value = "";
-    renderAiPendingFiles();
-    await loadAiContext();
-
-    var importedCount = data.imported ? data.imported.length : 0;
-    var skippedCount = data.skipped ? data.skipped.length : 0;
-    var message = importedCount + " arquivo(s) importado(s) para o contexto da IA.";
-    if (skippedCount) {
-      message += " " + skippedCount + " arquivo(s) foram ignorados.";
-    }
-    setAiImportFeedback(message, "success");
-  } catch (error) {
-    setAiImportFeedback(error.message || "Falha ao importar arquivos.", "error");
-  } finally {
-    button.disabled = false;
-    button.textContent = originalText;
-  }
-}
-
-// ── Select lead ──
-function setNotificationRoutesFeedback(text, tone) {
-  var el = document.getElementById("notificationRoutesFeedback");
-  el.textContent = text;
-  el.className = "ai-feedback" + (tone ? " " + tone : "");
-}
-
-function getNotificationRouteDescription(routeKey) {
-  if (routeKey === "handoff_leads") return "Grupo que recebe leads qualificados e repasses do bot.";
-  if (routeKey === "daily_report") return "Resumo diario automatico do que aconteceu.";
-  if (routeKey === "improvement_report") return "Analise automatica com melhorias e oportunidades.";
-  if (routeKey === "inactive_leads_alert") return "Alertas criticos para leads sem retorno apos certo tempo.";
-  return "Destino configuravel desta sessao.";
-}
-
-function toggleNotificationRouteFields(disabled) {
-  var fields = document.querySelectorAll(".route-config-field");
-  for (var i = 0; i < fields.length; i++) {
-    fields[i].disabled = disabled;
-  }
-}
-
-function updateNotificationRoute(index, field, value, targetName) {
-  if (!notificationRoutesState.routes[index]) return;
-  notificationRoutesState.routes[index][field] = value;
-  if (field === "targetId") {
-    notificationRoutesState.routes[index].targetName = value ? (targetName || "") : "";
-  }
-  if (field === "isEnabled") {
-    notificationRoutesState.routes[index].isEnabled = !!value;
-  }
-  renderNotificationRoutes();
-}
-
-function renderNotificationRoutes() {
-  var list = document.getElementById("notificationRoutesList");
-  var header = document.getElementById("routesHeaderStatus");
-  var account = aiContextState.account || {};
-  var connected = !!account.phone;
-  var groups = notificationRoutesState.groups || [];
-  var routes = notificationRoutesState.routes || [];
-
-  header.textContent = connected ? formatPhoneDisplay(account.phone) : "Aguardando sessao";
-
-  if (!routes.length) {
-    list.innerHTML = '<div class="ai-doc-card empty">Nenhuma rota configuravel encontrada para esta sessao.</div>';
-    toggleNotificationRouteFields(true);
-    return;
-  }
-
-  list.innerHTML = routes.map(function(route, index) {
-    var selectedId = route.targetId || "";
-    var groupOptions = ['<option value="">Nao enviar</option>'].concat(groups.map(function(group) {
-      var selected = group.id === selectedId ? " selected" : "";
-      return '<option value="' + esc(group.id) + '"' + selected + '>' + esc(group.name) + '</option>';
-    })).join("");
-    var checked = route.isEnabled ? " checked" : "";
-    var thresholdBlock = route.routeKey === "inactive_leads_alert"
-      ? '<div class="ai-field" style="max-width:160px"><label>Minutos</label><input class="ai-input route-config-field" type="number" min="1" value="' + esc(String(route.thresholdMinutes || 20)) + '" onchange="updateNotificationRoute(' + index + ', \'thresholdMinutes\', this.value)"></div>'
-      : "";
-    var disabledClass = route.isEnabled ? "" : " disabled";
-
-    return '<div class="route-card' + disabledClass + '">' +
-      '<div class="route-head">' +
-        '<div class="route-title">' + esc(route.routeLabel || route.routeKey) + '</div>' +
-        '<label class="route-toggle"><input class="route-config-field" type="checkbox"' + checked + ' onchange="updateNotificationRoute(' + index + ', \'isEnabled\', this.checked)"> Ativo</label>' +
-      '</div>' +
-      '<div class="route-copy">' + esc(getNotificationRouteDescription(route.routeKey)) + '</div>' +
-      '<div class="route-inline">' +
-        '<div class="ai-field"><label>Grupo</label><select class="ai-select route-config-field" onchange="updateNotificationRoute(' + index + ', \'targetId\', this.value, this.options[this.selectedIndex].text)">' + groupOptions + '</select></div>' +
-        thresholdBlock +
-      '</div>' +
-    '</div>';
-  }).join("");
-
-  toggleNotificationRouteFields(!connected);
-}
-
-async function loadNotificationRoutes() {
-  try {
-    var response = await fetch("/api/notification-routes");
-    var data = await response.json();
-    if (!response.ok || !data.success) {
-      throw new Error(data.error || "Falha ao carregar grupos e avisos.");
-    }
-
-    notificationRoutesState.groups = data.groups || [];
-    notificationRoutesState.routes = data.routes || [];
-    renderNotificationRoutes();
-
-    if (data.account && data.account.phone) {
-      setNotificationRoutesFeedback("Escolha em qual grupo cada tipo de aviso deve ser enviado.", "success");
-    } else {
-      setNotificationRoutesFeedback("Conecte um WhatsApp para configurar os grupos de destino.", "");
-    }
-  } catch (error) {
-    setNotificationRoutesFeedback(error.message || "Falha ao carregar grupos e avisos.", "error");
-  }
-}
-
-async function refreshWhatsAppGroups() {
-  await loadNotificationRoutes();
-}
-
-async function saveNotificationRoutesFront() {
-  if (!aiContextState.account || !aiContextState.account.phone) {
-    setNotificationRoutesFeedback("Conecte um WhatsApp por QR Code antes de salvar os grupos.", "error");
-    return;
-  }
-
-  var button = document.getElementById("btnSaveNotificationRoutes");
-  var originalText = button.textContent;
-  button.disabled = true;
-  button.textContent = "Salvando...";
-
-  try {
-    var payloadRoutes = (notificationRoutesState.routes || []).map(function(route) {
-      return {
-        routeKey: route.routeKey,
-        routeLabel: route.routeLabel,
-        targetKind: "group",
-        targetId: route.targetId || "",
-        targetName: route.targetName || "",
-        isEnabled: route.isEnabled !== false,
-        thresholdMinutes: route.thresholdMinutes || null,
-      };
+    // ────────── Tab Navigation ──────────
+    document.querySelectorAll(".tab-button").forEach(function(btn) {
+      btn.addEventListener("click", function() {
+        var tabName = this.getAttribute("data-tab");
+        document.querySelectorAll(".tab-button").forEach(function(b) {
+          b.classList.remove("active");
+        });
+        document.querySelectorAll(".tab-content").forEach(function(c) {
+          c.classList.remove("active");
+        });
+        this.classList.add("active");
+        document.getElementById(tabName + "Tab").classList.add("active");
+      });
     });
 
-    var response = await fetch("/api/notification-routes", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ routes: payloadRoutes }),
+    // ────────── Button Handlers ──────────
+    document.getElementById("btnReconnect").addEventListener("click", function() {
+      socket.emit("reconnect-whatsapp", selectedAccount);
     });
-    var data = await response.json();
-    if (!response.ok || !data.success) {
-      throw new Error(data.error || "Falha ao salvar grupos e avisos.");
-    }
 
-    notificationRoutesState.groups = data.groups || [];
-    notificationRoutesState.routes = data.routes || [];
-    renderNotificationRoutes();
-    setNotificationRoutesFeedback("Grupos e avisos salvos para esta sessao.", "success");
-  } catch (error) {
-    setNotificationRoutesFeedback(error.message || "Falha ao salvar grupos e avisos.", "error");
-  } finally {
-    button.disabled = false;
-    button.textContent = originalText;
-  }
-}
+    document.getElementById("btnReset").addEventListener("click", function() {
+      socket.emit("reset-session", selectedAccount);
+    });
 
-function selectLead(phone) {
-  selectedPhone = phone;
-  socket.emit("get-conversation", phone.includes("@c.us") ? phone : phone+"@c.us");
-  var items = document.querySelectorAll(".lead-item");
-  for (var i=0;i<items.length;i++) {
-    var oc = items[i].getAttribute("onclick")||"";
-    items[i].classList.toggle("active", oc.indexOf(phone)>-1);
-  }
-}
-
-// ── Conversation detail ──
-socket.on("conversation-detail", function(conv) {
-  selectedConv = conv;
-  var header = document.getElementById("convHeader");
-  var controls = document.getElementById("convControls");
-  var infoBar = document.getElementById("convInfoBar");
-  var body = document.getElementById("convBody");
-  var inputBar = document.getElementById("msgInputBar");
-
-  var phoneDisplay = formatPhoneDisplay(conv.contactNumber || conv.phone);
-  header.innerHTML = '<span>'+(conv.name||phoneDisplay)+'</span><span style="color:var(--g400);font-size:13px;font-weight:400">'+conv.messages.length+' msgs</span>';
-
-  // ── Barra de controle ──
-  controls.classList.add("visible");
-  if (conv.status === "handed_off") {
-    controls.innerHTML =
-      '<button class="btn-takeover btn-resume" onclick="resumeBot()">Reativar Bot</button>' +
-      '<span class="conv-status-tag off">Transferido para o comercial</span>';
-    inputBar.classList.add("visible");
-  } else if (conv.status === "paused" || !conv.botActive) {
-    controls.innerHTML =
-      '<button class="btn-takeover btn-resume" onclick="resumeBot()">Reativar Bot</button>' +
-      '<span class="conv-status-tag human">Voce esta respondendo</span>';
-    inputBar.classList.add("visible");
-  } else {
-    controls.innerHTML =
-      '<button class="btn-takeover btn-pause" onclick="pauseBot()">Assumir Conversa</button>';
-    inputBar.classList.remove("visible");
-  }
-
-  // ── Info bar ──
-  var infos = [];
-  if (conv.name) infos.push("<b>Nome:</b> "+esc(conv.name));
-  if (conv.company) infos.push("<b>Empresa:</b> "+esc(conv.company));
-  if (conv.segment) infos.push("<b>Segmento:</b> "+esc(conv.segment));
-  if (conv.pain||conv.interest) infos.push("<b>Interesse:</b> "+esc(conv.pain||conv.interest));
-  if (conv.infra) infos.push("<b>Infra:</b> "+esc(conv.infra));
-  if (conv.size) infos.push("<b>Porte:</b> "+esc(conv.size));
-  if (conv.temperature) infos.push("<b>Temp:</b> "+esc(conv.temperature));
-  if (infos.length) {
-    infoBar.style.display = "flex";
-    infoBar.innerHTML = infos.map(function(i){return '<div class="conv-info-item">'+i+'</div>';}).join("");
-  } else { infoBar.style.display = "none"; }
-
-  // ── Mensagens ──
-  if (!conv.messages||!conv.messages.length) {
-    body.innerHTML = '<div class="conv-empty"><div class="empty-icon">💬</div>Sem mensagens</div>';
-    return;
-  }
-  body.innerHTML = '<div class="conv-messages">' + conv.messages.map(function(m) {
-    var time = new Date(m.timestamp).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
-    var role = m.role === "lead" ? "lead" : (m.role === "human" ? "human" : "agent");
-    var sender = m.role === "human" ? "Voce" : (m.role === "agent" ? "Bot" : "");
-    return '<div class="msg '+role+'">'+esc(m.content)+
-      '<div class="msg-meta">'+(sender?'<span class="msg-sender">'+sender+'</span>':'')+
-      '<span>'+time+'</span></div></div>';
-  }).join("") + '</div>';
-  body.scrollTop = body.scrollHeight;
-});
-
-// ── Real-time message update (sem recarregar tudo) ──
-socket.on("conversation-update", function(data) {
-  if (selectedPhone === data.phone) {
-    socket.emit("get-conversation", data.phone.includes("@c.us") ? data.phone : data.phone+"@c.us");
-  }
-});
-
-// ── Takeover actions ──
-function pauseBot() {
-  if (!selectedPhone) return;
-  var phone = selectedPhone.includes("@c.us") ? selectedPhone : selectedPhone+"@c.us";
-  socket.emit("pause-bot", phone);
-}
-
-function resumeBot() {
-  if (!selectedPhone) return;
-  var phone = selectedPhone.includes("@c.us") ? selectedPhone : selectedPhone+"@c.us";
-  socket.emit("resume-bot", phone);
-}
-
-function sendHumanMessage() {
-  var input = document.getElementById("msgInput");
-  var text = input.value.trim();
-  if (!text || !selectedPhone) return;
-  var phone = selectedPhone.includes("@c.us") ? selectedPhone : selectedPhone+"@c.us";
-  // Feedback visual imediato
-  var body = document.getElementById("convBody");
-  if (body) {
-    var now = new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
-    body.innerHTML += '<div class="msg-row human"><div class="msg-bubble human">' +
-      '<div class="msg-meta"><span class="msg-sender">Voce</span><span class="msg-time">' + now + '</span></div>' +
-      '<div class="msg-text">' + esc(text) + '</div></div></div>';
-    body.scrollTop = body.scrollHeight;
-  }
-  socket.emit("send-human-message", { phone: phone, text: text });
-  input.value = "";
-  input.focus();
-}
-
-// ── Log ──
-var logLines = [];
-socket.on("log", function(entry) {
-  logLines.push(entry);
-  if (logLines.length > 100) logLines.shift();
-  var el = document.getElementById("logBody");
-  el.innerHTML = logLines.map(function(l) {
-    return '<div class="log-line '+l.type+'">'+esc(l.text)+'</div>';
-  }).join("");
-  el.scrollTop = el.scrollHeight;
-  socket.emit("get-leads");
-});
-
-var aiDropzone = document.getElementById("aiDropzone");
-if (aiDropzone) {
-  aiDropzone.addEventListener("dragover", function(event) {
-    event.preventDefault();
-    aiDropzone.classList.add("dragover");
-  });
-  aiDropzone.addEventListener("dragleave", function() {
-    aiDropzone.classList.remove("dragover");
-  });
-  aiDropzone.addEventListener("drop", function(event) {
-    event.preventDefault();
-    aiDropzone.classList.remove("dragover");
-    handleAiFilesSelected(event.dataTransfer && event.dataTransfer.files ? event.dataTransfer.files : []);
-  });
-}
-
-loadAiContext();
-</script>
+    // ────────── Initial Load ──────────
+    socket.emit("get-leads");
+  </script>
 </body>
 </html>
