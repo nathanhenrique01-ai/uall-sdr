@@ -140,6 +140,13 @@ export async function initDb() {
       // Constraint pode ja existir
     }
 
+    // Torna lead_id nullable pois agora usamos session_id
+    try {
+      await conn.query("ALTER TABLE messages MODIFY COLUMN lead_id INT UNSIGNED NULL");
+    } catch (e) {
+      // Pode ja estar nullable
+    }
+
     console.log("✅ MariaDB conectado — banco uall_sdr pronto");
   } catch (err) {
     console.error("⚠️ MariaDB indisponivel:", err.message);

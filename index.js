@@ -136,8 +136,8 @@ async function safeSendMessage(wppClient, phone, text) {
     console.log("⚠️ LID error para " + phone + ", tentando alternativas...");
   }
 
-  // 3. Busca o chat pela lista de chats recentes (mais abrangente)
-  var rawNum = phone.replace("@c.us", "").replace("@lid", "");
+  // 3. Tira sufixos de forma mais robusta
+  var rawNum = phone.replace(/[@]c\.us|[@]lid/g, "");
   try {
     var allChats = await wppClient.getChats();
     for (var i = 0; i < allChats.length; i++) {
@@ -178,7 +178,15 @@ async function safeSendMessage(wppClient, phone, text) {
     }
   } catch (e6) {}
 
-  // 6. Busca pelo contactNumber real salvo no DB
+  // 6. Tenta envio com numero limpo + @c.us (fallback simples)
+  try {
+    var cleanId = rawNum + "@c.us";
+    console.log("✅ Tentando com numero limpo: " + cleanId);
+    await wppClient.sendMessage(cleanId, text);
+    return;
+  } catch (e6b) {}
+
+  // 7. Busca pelo contactNumber real salvo no DB
   try {
     var conv = await loadConversation(phone);
     if (conv.contactNumber) {
