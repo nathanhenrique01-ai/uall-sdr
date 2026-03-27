@@ -41,10 +41,18 @@ function parseAgentResponse(full) {
   var handoff = false;
   var leadData = null;
 
+  // Extrai dados simples durante conversa ([EXTRACTED_DATA])
+  var em = response.match(/\[EXTRACTED_DATA\]([\s\S]*?)(?=\[QUALIFIED\]|\[HANDOFF\]|$)/);
+  if (em) {
+    leadData = parseLeadData(em[1]);
+    response = response.replace(/\[EXTRACTED_DATA\][\s\S]*?(?=\[QUALIFIED\]|\[HANDOFF\]|$)/, "");
+  }
+
   var qm = response.match(/\[QUALIFIED\]([\s\S]*?)(?=\[HANDOFF\]|$)/);
   if (qm) {
     qualified = true;
-    leadData = parseLeadData(qm[1]);
+    var qualData = parseLeadData(qm[1]);
+    leadData = Object.assign({}, leadData, qualData);  // merge com dados extraidos
     response = response.replace(/\[QUALIFIED\][\s\S]*?(?=\[HANDOFF\]|$)/, "");
   }
 

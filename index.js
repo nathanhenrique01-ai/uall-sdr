@@ -649,8 +649,19 @@ function startWhatsApp() {
 
       io.emit("log", { type: "out", text: "[" + ts + "] 🤖 -> " + shortPhone + ": " + result.response });
 
-      addMessage(conv, "agent", result.response);
+      await addMessage(conv, "agent", result.response);
       conv.agentExchanges = (conv.agentExchanges || 0) + 1;
+
+      // ── Aplica dados extraídos à conversa ──
+      if (result.leadData) {
+        var keys = ["name", "email", "company", "segment", "pain", "size", "temperature", "summary", "infra", "interest", "scheduling"];
+        for (var k = 0; k < keys.length; k++) {
+          var key = keys[k];
+          if (result.leadData[key] && !conv[key]) {
+            conv[key] = result.leadData[key];
+          }
+        }
+      }
 
       if (result.handoff || result.qualified) {
         var ld = Object.assign({}, result.leadData, { phone: phone, contactNumber: conv.contactNumber || null });
