@@ -1,27 +1,27 @@
-// memory.js — Armazenamento em MariaDB (principal) + JSON (fallback)
+// memory.js — Armazenamento em MariaDB
 
-import fs from "fs";
-import path from "path";
 import { getPool, getOrCreateSession, getSessionMessages, addSessionMessage } from "./db.js";
-
-var DATA_DIR = path.join(process.cwd(), "data", "conversations");
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 function sanitize(phone) {
   return phone.replace(/[^0-9a-zA-Z@._-]/g, "");
-}
-function fp(phone) {
-  return path.join(DATA_DIR, sanitize(phone).replace(/[^0-9]/g, "") + ".json");
 }
 
 function newConversation(phone) {
   return {
     phone: sanitize(phone),
     contactNumber: null,
-    currentSessionId: null,  // ID da sessao ativa
-    name: null, email: null, company: null, segment: null,
-    pain: null, size: null, temperature: null,
-    summary: null, infra: null, interest: null, scheduling: null,
+    currentSessionId: null,
+    name: null,
+    email: null,
+    company: null,
+    segment: null,
+    pain: null,
+    size: null,
+    temperature: null,
+    summary: null,
+    infra: null,
+    interest: null,
+    scheduling: null,
     status: "active",
     botActive: true,
     agentExchanges: 0,
@@ -33,20 +33,21 @@ function newConversation(phone) {
   };
 }
 
-// ── Helpers DB ──
-
-async function getLeadIdByPhone(conn, phone) {
-  var rows = await conn.query("SELECT id FROM leads WHERE phone = ?", [sanitize(phone)]);
-  return rows.length > 0 ? rows[0].id : null;
-}
-
 function rowToConv(row, messages) {
   return {
     phone: row.phone,
     contactNumber: row.contact_number,
-    name: row.name, email: row.email, company: row.company, segment: row.segment,
-    pain: row.pain, size: row.size, temperature: row.temperature,
-    summary: row.summary, infra: row.infra, interest: row.interest, scheduling: row.scheduling,
+    name: row.name,
+    email: row.email,
+    company: row.company,
+    segment: row.segment,
+    pain: row.pain,
+    size: row.size,
+    temperature: row.temperature,
+    summary: row.summary,
+    infra: row.infra,
+    interest: row.interest,
+    scheduling: row.scheduling,
     status: row.status,
     botActive: row.bot_active === 1 || row.bot_active === true,
     agentExchanges: row.agent_exchanges || 0,
@@ -58,22 +59,21 @@ function rowToConv(row, messages) {
   };
 }
 
-// ── JSON Fallback ──
-
-function loadFromJson(phone) {
-  var p = fp(phone);
-  if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, "utf-8"));
-  return null;
+function isoToMysqlDatetime(isoString) {
+  if (!isoString) return null;
+  try {
+    var date = new Date(isoString);
+    var year = date.getUTCFullYear();
+    var month = String(date.getUTCMonth() + 1).padStart(2, "0");
+    var day = String(date.getUTCDate()).padStart(2, "0");
+    var hours = String(date.getUTCHours()).padStart(2, "0");
+    var minutes = String(date.getUTCMinutes()).padStart(2, "0");
+    var seconds = String(date.getUTCSeconds()).padStart(2, "0");
+    return year + "-" + month + "-" + day + " " + hours + ":" + minutes + ":" + seconds;
+  } catch (e) {
+    return null;
+  }
 }
-
-function saveToJson(phone, conv) {
-  // DESABILITADO: Agora tudo vai para MariaDB
-  // try {
-  //   fs.writeFileSync(fp(phone), JSON.stringify(conv, null, 2), "utf-8");
-  // } catch (e) {}
-}
-
-// ── LOAD ──
 
 export async function loadConversation(phone) {
   var conn;
@@ -84,56 +84,25 @@ export async function loadConversation(phone) {
 
     var rows = await conn.query("SELECT * FROM leads WHERE phone = ?", [sPhone]);
     if (rows.length === 0) {
-      // Tenta carregar do JSON (migracao)
-      var jsonConv = loadFromJson(phone);
-      if (jsonConv) return jsonConv;
       return newConversation(phone);
     }
 
     var lead = rows[0];
-
-    // Busca sessao ativa (ou cria nova)
     var session = await getOrCreateSession(lead.id);
-
-    // Carrega apenas mensagens da sessao ativa
     var messages = await getSessionMessages(session.id);
-
     var conv = rowToConv(lead, messages);
     conv.currentSessionId = session.id;
     return conv;
   } catch (err) {
-    console.error("⚠️ DB loadConversation fallback JSON:", err.message);
-    var jsonConv = loadFromJson(phone);
-    if (jsonConv) return jsonConv;
+    console.error("DB loadConversation error:", err.message);
     return newConversation(phone);
   } finally {
     if (conn) conn.release();
   }
 }
 
-// ── HELPERS ──
-
-function isoToMysqlDatetime(isoString) {
-  if (!isoString) return null;
-  try {
-    var date = new Date(isoString);
-    var year = date.getUTCFullYear();
-    var month = String(date.getUTCMonth() + 1).padStart(2, '0');
-    var day = String(date.getUTCDate()).padStart(2, '0');
-    var hours = String(date.getUTCHours()).padStart(2, '0');
-    var minutes = String(date.getUTCMinutes()).padStart(2, '0');
-    var seconds = String(date.getUTCSeconds()).padStart(2, '0');
-    return year + '-' + month + '-' + day + ' ' + hours + ':' + minutes + ':' + seconds;
-  } catch (e) {
-    return null;
-  }
-}
-
-// ── SAVE ──
-
 export async function saveConversation(phone, conv) {
   conv.updatedAt = new Date().toISOString();
-  saveToJson(phone, conv); // sempre salva JSON como backup
 
   var conn;
   try {
@@ -141,9 +110,12 @@ export async function saveConversation(phone, conv) {
     conn = await pool.getConnection();
     var sPhone = sanitize(phone);
 
-    // Upsert lead
     await conn.query(`
-      INSERT INTO leads (phone, contact_number, name, email, company, segment, pain, size, temperature, summary, infra, interest, scheduling, status, bot_active, agent_exchanges, created_at, updated_at, handed_off_at, paused_at)
+      INSERT INTO leads (
+        phone, contact_number, name, email, company, segment, pain, size,
+        temperature, summary, infra, interest, scheduling, status,
+        bot_active, agent_exchanges, created_at, updated_at, handed_off_at, paused_at
+      )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?)
       ON DUPLICATE KEY UPDATE
         contact_number = VALUES(contact_number),
@@ -181,27 +153,21 @@ export async function saveConversation(phone, conv) {
       conv.status || "active",
       conv.botActive ? 1 : 0,
       conv.agentExchanges || 0,
-      isoToMysqlDatetime(conv.createdAt) || new Date().toISOString().slice(0, 19).replace('T', ' '),
+      isoToMysqlDatetime(conv.createdAt) || new Date().toISOString().slice(0, 19).replace("T", " "),
       conv.handedOffAt ? isoToMysqlDatetime(conv.handedOffAt) : null,
       conv.pausedAt ? isoToMysqlDatetime(conv.pausedAt) : null,
     ]);
-
-    // Mensagens agora sao inseridas via addMessage/addSessionMessage
-    // (nao precisam ser inseridas aqui no saveConversation)
   } catch (err) {
-    console.error("⚠️ DB saveConversation error:", err.message);
+    console.error("DB saveConversation error:", err.message);
   } finally {
     if (conn) conn.release();
   }
 }
 
-// ── ADD MESSAGE (in-memory + DB session) ──
-
 export async function addMessage(conv, role, content) {
   var timestamp = new Date().toISOString();
   conv.messages.push({ role: role, content: content, timestamp: timestamp });
 
-  // Salva no banco da sessao se tiver sessionId
   if (conv.currentSessionId) {
     try {
       await addSessionMessage(conv.currentSessionId, role, content);
@@ -213,8 +179,6 @@ export async function addMessage(conv, role, content) {
   return conv;
 }
 
-// ── OPENAI MESSAGES ──
-
 export function toOpenAIMessages(conv, systemPrompt, max) {
   max = max || 50;
   var recent = conv.messages.slice(-max);
@@ -222,27 +186,23 @@ export function toOpenAIMessages(conv, systemPrompt, max) {
   for (var i = 0; i < recent.length; i++) {
     var r = recent[i].role;
     msgs.push({
-      role: (r === "lead") ? "user" : "assistant",
+      role: r === "lead" ? "user" : "assistant",
       content: recent[i].content,
     });
   }
   return msgs;
 }
 
-// ── MARK HANDED OFF ──
-
 export function markHandedOff(conv, data) {
   conv.status = "handed_off";
   conv.botActive = false;
   conv.handedOffAt = new Date().toISOString();
-  var keys = ["name","email","company","segment","pain","size","temperature","summary","infra","interest","scheduling"];
+  var keys = ["name", "email", "company", "segment", "pain", "size", "temperature", "summary", "infra", "interest", "scheduling"];
   for (var i = 0; i < keys.length; i++) {
     if (data[keys[i]]) conv[keys[i]] = data[keys[i]];
   }
   return conv;
 }
-
-// ── PAUSE / RESUME ──
 
 export async function pauseBot(phone) {
   var conv = await loadConversation(phone);
@@ -262,8 +222,6 @@ export async function resumeBot(phone) {
   return conv;
 }
 
-// ── LIST ALL LEADS ──
-
 export async function listAllLeads() {
   var conn;
   try {
@@ -272,8 +230,15 @@ export async function listAllLeads() {
 
     var rows = await conn.query(`
       SELECT l.*,
-        (SELECT COUNT(*) FROM messages WHERE lead_id = l.id) as total_messages,
-        (SELECT content FROM messages WHERE lead_id = l.id ORDER BY created_at DESC LIMIT 1) as last_message
+        (SELECT COUNT(*) FROM messages WHERE lead_id = l.id OR session_id IN (SELECT id FROM sessions WHERE lead_id = l.id)) as total_messages,
+        (
+          SELECT m.content
+          FROM messages m
+          LEFT JOIN sessions s ON s.id = m.session_id
+          WHERE m.lead_id = l.id OR s.lead_id = l.id
+          ORDER BY m.created_at DESC
+          LIMIT 1
+        ) as last_message
       FROM leads l
       ORDER BY l.updated_at DESC
     `);
@@ -298,35 +263,16 @@ export async function listAllLeads() {
       };
     });
   } catch (err) {
-    console.error("⚠️ DB listAllLeads fallback JSON:", err.message);
-    // Fallback: le dos arquivos JSON
-    if (!fs.existsSync(DATA_DIR)) return [];
-    var files = fs.readdirSync(DATA_DIR).filter(function(f) { return f.endsWith(".json"); });
-    return files.map(function(f) {
-      var conv = JSON.parse(fs.readFileSync(path.join(DATA_DIR, f), "utf-8"));
-      return {
-        phone: conv.phone, contactNumber: conv.contactNumber || null,
-        name: conv.name, email: conv.email, company: conv.company,
-        segment: conv.segment, pain: conv.pain, temperature: conv.temperature,
-        status: conv.status, botActive: conv.botActive,
-        totalMessages: conv.messages.length,
-        agentExchanges: conv.agentExchanges || 0,
-        lastMessage: conv.messages.length > 0 ? conv.messages[conv.messages.length - 1].content : "",
-        updatedAt: conv.updatedAt, createdAt: conv.createdAt,
-      };
-    });
+    console.error("DB listAllLeads error:", err.message);
+    return [];
   } finally {
     if (conn) conn.release();
   }
 }
 
-// ── GET CONVERSATION (alias) ──
-
 export async function getConversation(phone) {
   return await loadConversation(phone);
 }
-
-// ── LOAD ALL CONVERSATIONS (para reports.js) ──
 
 export async function loadAllConversations() {
   var conn;
@@ -336,25 +282,41 @@ export async function loadAllConversations() {
 
     var leads = await conn.query("SELECT * FROM leads ORDER BY updated_at DESC");
     var result = [];
+
     for (var i = 0; i < leads.length; i++) {
       var lead = leads[i];
-      var msgs = await conn.query(
-        "SELECT role, content, created_at FROM messages WHERE lead_id = ? ORDER BY created_at ASC",
+      var sessions = await conn.query(
+        "SELECT id FROM sessions WHERE lead_id = ? ORDER BY started_at ASC",
         [lead.id]
       );
+
+      var sessionIds = sessions.map(function(session) { return session.id; });
+      var msgs = [];
+
+      if (sessionIds.length > 0) {
+        var placeholders = sessionIds.map(function() { return "?"; }).join(",");
+        msgs = await conn.query(
+          "SELECT role, content, created_at FROM messages WHERE lead_id = ? OR session_id IN (" + placeholders + ") ORDER BY created_at ASC",
+          [lead.id].concat(sessionIds)
+        );
+      } else {
+        msgs = await conn.query(
+          "SELECT role, content, created_at FROM messages WHERE lead_id = ? ORDER BY created_at ASC",
+          [lead.id]
+        );
+      }
+
       var messages = msgs.map(function(m) {
         return { role: m.role, content: m.content, timestamp: new Date(m.created_at).toISOString() };
       });
+
       result.push(rowToConv(lead, messages));
     }
+
     return result;
   } catch (err) {
-    console.error("⚠️ DB loadAllConversations fallback JSON:", err.message);
-    if (!fs.existsSync(DATA_DIR)) return [];
-    var files = fs.readdirSync(DATA_DIR).filter(function(f) { return f.endsWith(".json"); });
-    return files.map(function(f) {
-      return JSON.parse(fs.readFileSync(path.join(DATA_DIR, f), "utf-8"));
-    });
+    console.error("DB loadAllConversations error:", err.message);
+    return [];
   } finally {
     if (conn) conn.release();
   }

@@ -235,7 +235,7 @@ async function buildImprovementReport() {
   }
 }
 
-export function startScheduledReports(wppGetter, groupFinder, ioRef) {
+export function startScheduledReports(wppGetter, routeResolver, ioRef) {
   // Relatorio diario as 14:00
   cron.schedule("0 14 * * *", async function() {
     console.log("Gerando relatorio diario das 14h...");
@@ -248,14 +248,14 @@ export function startScheduledReports(wppGetter, groupFinder, ioRef) {
         return;
       }
 
-      var groupId = await groupFinder(wpp);
-      if (!groupId) {
-        ioRef.emit("log", { type: "error", text: "[" + ts + "] Relatorio 14h: grupo nao encontrado" });
+      var resolvedDailyRoute = await routeResolver("daily_report", wpp);
+      if (!resolvedDailyRoute || !resolvedDailyRoute.targetId) {
+        ioRef.emit("log", { type: "error", text: "[" + ts + "] Relatorio 14h: configure um grupo no painel" });
         return;
       }
 
       var report = await buildDailyReport();
-      await wpp.sendMessage(groupId, report);
+      await wpp.sendMessage(resolvedDailyRoute.targetId, report);
       ioRef.emit("log", { type: "info", text: "[" + ts + "] ✅ Relatório diário enviado para o grupo" });
       console.log("Relatorio diario enviado!");
     } catch (err) {
@@ -276,14 +276,14 @@ export function startScheduledReports(wppGetter, groupFinder, ioRef) {
         return;
       }
 
-      var groupId = await groupFinder(wpp);
-      if (!groupId) {
-        ioRef.emit("log", { type: "error", text: "[" + ts + "] Analise 17h: grupo nao encontrado" });
+      var resolvedImprovementRoute = await routeResolver("improvement_report", wpp);
+      if (!resolvedImprovementRoute || !resolvedImprovementRoute.targetId) {
+        ioRef.emit("log", { type: "error", text: "[" + ts + "] Analise 17h: configure um grupo no painel" });
         return;
       }
 
       var report = await buildImprovementReport();
-      await wpp.sendMessage(groupId, report);
+      await wpp.sendMessage(resolvedImprovementRoute.targetId, report);
       ioRef.emit("log", { type: "info", text: "[" + ts + "] ✅ Análise de melhorias enviada para o grupo" });
       console.log("Analise de melhorias enviada!");
     } catch (err) {
@@ -299,12 +299,13 @@ export function startScheduledReports(wppGetter, groupFinder, ioRef) {
       var wpp = wppGetter();
       if (!wpp) return;
 
-      var groupId = await groupFinder(wpp);
-      if (!groupId) return;
+      var resolvedAlertRoute = await routeResolver("inactive_leads_alert", wpp);
+      if (!resolvedAlertRoute || !resolvedAlertRoute.targetId) return;
 
       var all = await loadAllConvsFromDb();
       var now = Date.now();
-      var inactivityMs = 20 * 60 * 1000; // 20 min
+      var inactivityMinutes = resolvedAlertRoute.route && resolvedAlertRoute.route.thresholdMinutes ? resolvedAlertRoute.route.thresholdMinutes : 20;
+      var inactivityMs = inactivityMinutes * 60 * 1000;
       var staleLeads = [];
 
       for (var i = 0; i < all.length; i++) {
@@ -316,7 +317,7 @@ export function startScheduledReports(wppGetter, groupFinder, ioRef) {
         var lastTime = new Date(lastMsg.timestamp).getTime();
         var minInactive = Math.round((now - lastTime) / 60000);
 
-        // Se a ultima msg foi do bot e faz mais de 20 min
+        // Se a ultima msg foi do bot e faz mais que o limite configurado
         if (lastMsg.role === "agent" && (now - lastTime) > inactivityMs) {
           var contactNum = conv.contactNumber || conv.phone;
           var displayNum = String(contactNum).replace(/[^0-9]/g, "");
@@ -335,14 +336,14 @@ export function startScheduledReports(wppGetter, groupFinder, ioRef) {
 
       if (staleLeads.length > 0) {
         var msg = "⏰ *ALERTA - CONVERSAS SEM RETORNO*\n\n";
-        msg += "Os seguintes leads nao responderam ha mais de 20 minutos:\n\n";
+        msg += "Os seguintes leads nao responderam ha mais de " + inactivityMinutes + " minutos:\n\n";
         for (var j = 0; j < staleLeads.length; j++) {
           var s = staleLeads[j];
           msg += "• " + s.name + " (" + s.phone + ") — " + s.minutes + " min sem resposta\n";
         }
         msg += "\n⚡ _Considere enviar uma mensagem manual para reengajar!_";
 
-        await wpp.sendMessage(groupId, msg);
+        await wpp.sendMessage(resolvedAlertRoute.targetId, msg);
         ioRef.emit("log", { type: "info", text: "[" + ts + "] ⏰ Alerta de inatividade enviado (" + staleLeads.length + " leads)" });
       }
     } catch (err) {

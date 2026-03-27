@@ -20,7 +20,9 @@
       "Bash(ls \"C:/Program Files/MariaDB\"*/bin/mysql.exe)",
       "Bash(ls \"C:/Program Files/MariaDB\"*/bin/mariadb.exe)",
       "Bash(node -e \"import\\(''./db.js''\\).then\\(m => m.initDb\\(\\).then\\(\\(\\) => { console.log\\(''done''\\); process.exit\\(0\\); }\\)\\)\")",
-      "Bash(\"C:/Program Files/MariaDB 12.2/bin/mysql.exe\" -u root -proot -e \"SHOW TABLES FROM uall_sdr; DESCRIBE uall_sdr.leads; DESCRIBE uall_sdr.messages;\")"
+      "Bash(\"C:/Program Files/MariaDB 12.2/bin/mysql.exe\" -u root -proot -e \"SHOW TABLES FROM uall_sdr; DESCRIBE uall_sdr.leads; DESCRIBE uall_sdr.messages;\")",
+      "Bash(grep -E \"\\\\.\\(js|json\\)$\")",
+      "Bash(ls -la /d/Backup/uall-sdr/*.js /d/Backup/uall-sdr/*.json)"
     ]
   }
 }

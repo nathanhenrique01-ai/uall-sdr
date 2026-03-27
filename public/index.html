@@ -118,10 +118,78 @@
   .log-line.error{color:var(--red)}
   .log-line.info{color:var(--g500)}
 
+  .ai-panel{margin-top:20px}
+  .ai-panel-body{display:grid;grid-template-columns:320px 1fr}
+  .ai-side{padding:24px;border-right:1px solid var(--g200);background:linear-gradient(180deg,#f8fbff 0%,#eef5ff 100%)}
+  .ai-side-label{font-size:11px;font-weight:700;color:var(--g500);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:10px}
+  .ai-connected-number{font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700;color:var(--g900);line-height:1.2}
+  .ai-side-text{font-size:13px;color:var(--g600);line-height:1.6;margin-top:12px}
+  .ai-side-badge{display:inline-flex;align-items:center;gap:6px;margin-top:14px;padding:6px 12px;border-radius:999px;background:var(--g900);color:white;font-size:12px;font-weight:600}
+  .ai-editor{padding:22px}
+  .ai-lazy-box{border:1px dashed var(--blue);background:linear-gradient(180deg,#f8fbff 0%,#eef5ff 100%);border-radius:16px;padding:18px 18px 16px;margin-bottom:20px}
+  .ai-lazy-title{font-size:14px;font-weight:800;color:var(--g800);margin-bottom:6px}
+  .ai-lazy-copy{font-size:13px;color:var(--g600);line-height:1.55;margin-bottom:14px}
+  .ai-dropzone{border:1px dashed var(--g300);background:white;border-radius:12px;padding:18px;text-align:center;cursor:pointer;transition:border 0.15s, background 0.15s}
+  .ai-dropzone:hover,.ai-dropzone.dragover{border-color:var(--blue);background:#f8fbff}
+  .ai-dropzone strong{display:block;font-size:14px;color:var(--g800);margin-bottom:4px}
+  .ai-dropzone span{font-size:12px;color:var(--g500)}
+  .ai-hidden-input{display:none}
+  .ai-file-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+  .ai-file-chip{display:inline-flex;align-items:center;gap:6px;padding:7px 10px;border-radius:999px;background:white;border:1px solid var(--g200);font-size:12px;color:var(--g700)}
+  .ai-lazy-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px}
+  .btn-import-files{border:none;background:var(--g900);color:white;padding:11px 16px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer}
+  .btn-import-files:disabled{opacity:0.6;cursor:not-allowed}
+  .ai-optional-note{font-size:12px;color:var(--g500);margin-bottom:14px}
+  .ai-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+  .ai-field{display:flex;flex-direction:column;gap:7px}
+  .ai-field.full{grid-column:1 / -1}
+  .ai-field label{font-size:12px;font-weight:700;color:var(--g600);text-transform:uppercase;letter-spacing:0.4px}
+  .ai-input,.ai-textarea,.ai-select{width:100%;border:1px solid var(--g300);border-radius:10px;padding:11px 13px;font:inherit;color:var(--g800);background:white;outline:none;transition:border 0.15s, box-shadow 0.15s}
+  .ai-input:focus,.ai-textarea:focus,.ai-select:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(0,102,204,0.08)}
+  .ai-textarea{min-height:110px;resize:vertical}
+  .ai-docs-header{margin-top:20px;padding-top:18px;border-top:1px solid var(--g200);display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .ai-docs-title{font-size:13px;font-weight:700;color:var(--g700);text-transform:uppercase;letter-spacing:0.4px}
+  .btn-outline{border:1px solid var(--g300);background:white;color:var(--g700);padding:9px 14px;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.15s}
+  .btn-outline:hover{border-color:var(--blue);color:var(--blue)}
+  .ai-docs-list{display:flex;flex-direction:column;gap:14px;margin-top:16px}
+  .ai-doc-card{border:1px solid var(--g200);border-radius:14px;padding:16px;background:var(--g50)}
+  .ai-doc-card.empty{border-style:dashed;padding:22px;text-align:center;color:var(--g500);background:white}
+  .ai-doc-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+  .ai-doc-title{font-size:14px;font-weight:700;color:var(--g800)}
+  .btn-danger-lite{border:none;background:#fee2e2;color:#b91c1c;padding:8px 12px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer}
+  .ai-doc-grid{display:grid;grid-template-columns:1.2fr 0.8fr 1fr;gap:12px;margin-bottom:12px}
+  .ai-actions{margin-top:20px;padding-top:18px;border-top:1px solid var(--g200);display:flex;align-items:center;justify-content:space-between;gap:16px}
+  .ai-feedback{font-size:13px;color:var(--g600);line-height:1.5}
+  .ai-feedback.error{color:var(--red)}
+  .ai-feedback.success{color:var(--green-dark)}
+  .btn-save-context{border:none;background:var(--blue);color:white;padding:12px 18px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;transition:background 0.15s}
+  .btn-save-context:hover{background:var(--blue-dark)}
+  .btn-save-context:disabled,.ai-input:disabled,.ai-textarea:disabled,.ai-select:disabled,.btn-outline:disabled{opacity:0.6;cursor:not-allowed}
+  .routes-panel{margin-top:20px}
+  .routes-body{padding:22px}
+  .routes-copy{font-size:13px;color:var(--g600);line-height:1.6;margin-bottom:16px}
+  .routes-actions-top{display:flex;justify-content:flex-end;margin-bottom:14px}
+  .routes-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+  .route-card{border:1px solid var(--g200);border-radius:14px;padding:16px;background:var(--g50)}
+  .route-card.disabled{opacity:0.72}
+  .route-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
+  .route-title{font-size:14px;font-weight:700;color:var(--g800)}
+  .route-copy{font-size:12px;color:var(--g500);line-height:1.5;margin-bottom:12px}
+  .route-toggle{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:var(--g700)}
+  .route-inline{display:flex;gap:12px;align-items:flex-end}
+  .route-inline .ai-field{flex:1}
+
   @media(max-width:860px){
     .stats-row{grid-template-columns:repeat(2,1fr)}
     .main-grid{grid-template-columns:1fr;height:auto}
     .panel-body{max-height:360px}
+    .ai-panel-body{grid-template-columns:1fr}
+    .ai-side{border-right:none;border-bottom:1px solid var(--g200)}
+    .ai-grid,.ai-doc-grid{grid-template-columns:1fr}
+    .routes-list{grid-template-columns:1fr}
+    .ai-actions{flex-direction:column;align-items:flex-start}
+    .ai-lazy-actions{flex-direction:column;align-items:flex-start}
+    .route-inline{flex-direction:column;align-items:stretch}
   }
 </style>
 </head>
@@ -186,6 +254,124 @@
     </div>
   </div>
 
+  <div class="panel ai-panel">
+    <div class="panel-header">
+      <span>Configuracao da IA da Sessao WhatsApp</span>
+      <span id="aiContextHeaderStatus" style="color:var(--g400);font-weight:400;font-size:13px">Aguardando sessao</span>
+    </div>
+    <div class="ai-panel-body">
+      <div class="ai-side">
+        <div class="ai-side-label">Numero vinculado ao QR Code</div>
+        <div class="ai-connected-number" id="aiConnectedNumber">Sem sessao conectada</div>
+        <div class="ai-side-text" id="aiConnectedName">Conecte um WhatsApp para definir o comportamento da IA desta conta.</div>
+        <div class="ai-side-badge" id="aiContextSessionStatus">Sem sessao</div>
+        <div class="ai-side-text" id="aiSaveHint">Tudo que voce salvar aqui fica vinculado ao numero autenticado e entra no contexto das proximas respostas da IA.</div>
+      </div>
+      <div class="ai-editor">
+        <div class="ai-lazy-box">
+          <div class="ai-lazy-title">Modo preguiçoso</div>
+          <div class="ai-lazy-copy">Jogue aqui PDFs, DOC/DOCX, planilhas Excel, arquivos Markdown, TXT ou CSV. O sistema extrai o texto e adiciona sozinho no contexto da IA desta sessão.</div>
+          <label class="ai-dropzone" id="aiDropzone" for="aiLazyFiles">
+            <strong>Arraste arquivos aqui ou clique para selecionar</strong>
+            <span>Suporta múltiplos arquivos por vez. Preenchimento manual abaixo é opcional.</span>
+          </label>
+          <input type="file" id="aiLazyFiles" class="ai-hidden-input ai-config-field" multiple accept=".pdf,.doc,.docx,.md,.markdown,.txt,.csv,.xlsx,.xls,.json" onchange="handleAiFilesSelected(this.files)">
+          <div class="ai-file-list" id="aiPendingFiles"></div>
+          <div class="ai-lazy-actions">
+            <div class="ai-feedback" id="aiImportFeedback">Importe arquivos e deixe a IA montar o contexto sem precisar escrever tudo na mão.</div>
+            <button class="btn-import-files ai-config-field" id="btnImportAiFiles" onclick="importAiFiles()">Importar arquivos</button>
+          </div>
+        </div>
+
+        <div class="ai-optional-note">Campos manuais abaixo são opcionais. Use só se quiser ajustar a persona depois da importação.</div>
+
+        <div class="ai-grid">
+          <div class="ai-field">
+            <label for="aiProfileName">Nome do perfil</label>
+            <input class="ai-input ai-config-field" id="aiProfileName" placeholder="Ex.: SDR Matriz">
+          </div>
+          <div class="ai-field">
+            <label for="aiAttendantName">Nome do atendente</label>
+            <input class="ai-input ai-config-field" id="aiAttendantName" placeholder="Ex.: Larissa">
+          </div>
+          <div class="ai-field">
+            <label for="aiCompanyName">Nome da empresa</label>
+            <input class="ai-input ai-config-field" id="aiCompanyName" placeholder="Ex.: U-All Solutions">
+          </div>
+          <div class="ai-field">
+            <label for="aiPersonaName">Nome/persona da IA</label>
+            <input class="ai-input ai-config-field" id="aiPersonaName" placeholder="Ex.: Sofia">
+          </div>
+          <div class="ai-field full">
+            <label for="aiRole">Papel da IA</label>
+            <input class="ai-input ai-config-field" id="aiRole" placeholder="Ex.: SDR comercial da empresa, atendimento inicial, pre-vendas">
+          </div>
+          <div class="ai-field full">
+            <label for="aiCompanyDescription">Como a empresa deve ser apresentada</label>
+            <textarea class="ai-textarea ai-config-field" id="aiCompanyDescription" placeholder="Descreva a empresa, diferenciais, posicionamento, produtos e como a IA deve representar a marca."></textarea>
+          </div>
+          <div class="ai-field full">
+            <label for="aiObjectives">Objetivos da IA</label>
+            <textarea class="ai-textarea ai-config-field" id="aiObjectives" placeholder="Ex.: qualificar lead, agendar reuniao, coletar dados, encaminhar ao comercial."></textarea>
+          </div>
+          <div class="ai-field full">
+            <label for="aiTone">Tom de voz</label>
+            <textarea class="ai-textarea ai-config-field" id="aiTone" placeholder="Ex.: mais humano, mais direto, tecnico, consultivo, informal, premium."></textarea>
+          </div>
+          <div class="ai-field full">
+            <label for="aiBehavior">Como a IA deve se comportar</label>
+            <textarea class="ai-textarea ai-config-field" id="aiBehavior" placeholder="Explique como deve conduzir conversas, como responder, como insistir, o que priorizar e como parecer mais com a empresa."></textarea>
+          </div>
+          <div class="ai-field">
+            <label for="aiAudience">Perfil do publico</label>
+            <textarea class="ai-textarea ai-config-field" id="aiAudience" placeholder="Quem costuma falar com a empresa?"></textarea>
+          </div>
+          <div class="ai-field">
+            <label for="aiRestrictions">Limites e assuntos a evitar</label>
+            <textarea class="ai-textarea ai-config-field" id="aiRestrictions" placeholder="Ex.: nao falar preco, nao prometer prazo, evitar jargao tecnico."></textarea>
+          </div>
+          <div class="ai-field full">
+            <label for="aiSalesScript">Script comercial e orientacoes</label>
+            <textarea class="ai-textarea ai-config-field" id="aiSalesScript" placeholder="Argumentos, perguntas obrigatorias, etapas do atendimento e regras comerciais."></textarea>
+          </div>
+          <div class="ai-field full">
+            <label for="aiKnowledgeBase">Base de conhecimento adicional</label>
+            <textarea class="ai-textarea ai-config-field" id="aiKnowledgeBase" placeholder="Cole aqui informacoes institucionais, processos, FAQs, politicas, objeções, diferenciais e outros textos base."></textarea>
+          </div>
+        </div>
+
+        <div class="ai-docs-header">
+          <div class="ai-docs-title">Documentos e textos para a IA analisar</div>
+          <button class="btn-outline ai-config-field" id="btnAddAiDocument" onclick="addAiDocument()">Adicionar documento</button>
+        </div>
+        <div class="ai-docs-list" id="aiDocumentsList"></div>
+
+        <div class="ai-actions">
+          <div class="ai-feedback" id="aiContextFeedback">Conecte um numero via QR Code para vincular este contexto a uma sessao especifica.</div>
+          <button class="btn-save-context ai-config-field" id="btnSaveAiContext" onclick="saveAiContext()">Salvar contexto da sessao</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel routes-panel">
+    <div class="panel-header">
+      <span>Grupos e avisos</span>
+      <span id="routesHeaderStatus" style="color:var(--g400);font-weight:400;font-size:13px">Aguardando sessao</span>
+    </div>
+    <div class="routes-body">
+      <div class="routes-copy">Escolha no painel para qual grupo cada tipo de informacao deve ser enviado. Tudo fica salvo no banco por numero conectado.</div>
+      <div class="routes-actions-top">
+        <button class="btn-outline route-config-field" onclick="refreshWhatsAppGroups()">Atualizar grupos</button>
+      </div>
+      <div class="routes-list" id="notificationRoutesList"></div>
+      <div class="ai-actions">
+        <div class="ai-feedback" id="notificationRoutesFeedback">Conecte um WhatsApp para configurar os grupos de destino.</div>
+        <button class="btn-save-context route-config-field" id="btnSaveNotificationRoutes" onclick="saveNotificationRoutesFront()">Salvar grupos e avisos</button>
+      </div>
+    </div>
+  </div>
+
   <div class="panel log-panel">
     <div class="panel-header"><span>Log em tempo real</span></div>
     <div class="log-body" id="logBody"><div style="color:var(--g400);font-style:italic">Aguardando atividade...</div></div>
@@ -196,6 +382,11 @@
 var socket = io();
 var selectedPhone = null;
 var selectedConv = null;
+var aiContextState = { account: null, profile: null };
+var aiPendingUploadFiles = [];
+var notificationRoutesState = { routes: [], groups: [] };
+
+simplifyAiForm();
 
 // ── Status ──
 socket.on("status", function(s) {
@@ -218,6 +409,8 @@ socket.on("status", function(s) {
     overlay.classList.remove("active");
     btnR.classList.add("visible"); btnX.classList.add("visible");
   }
+  loadAiContext();
+  loadNotificationRoutes();
 });
 
 socket.on("qr", function(url) { document.getElementById("qrImage").src = url; });
@@ -269,7 +462,478 @@ function formatPhoneDisplay(num) {
   return num.replace(/^55/,"").replace(/(\d{2})(\d{5})(\d{4})/,"($1) $2-$3");
 }
 
+function buildEmptyAiProfile(accountPhone) {
+  return {
+    accountPhone: accountPhone || null,
+    sessionKey: "default",
+    profileName: "",
+    attendantName: "",
+    companyName: "",
+    companyDescription: "",
+    aiName: "",
+    aiRole: "",
+    toneOfVoice: "",
+    behaviorGuidelines: "",
+    objectives: "",
+    audienceProfile: "",
+    forbiddenTopics: "",
+    salesScript: "",
+    knowledgeBase: "",
+    documents: [],
+    isActive: true,
+  };
+}
+
+function simplifyAiForm() {
+  var hiddenIds = [
+    "aiProfileName",
+    "aiCompanyName",
+    "aiPersonaName",
+    "aiCompanyDescription",
+    "aiObjectives",
+    "aiTone",
+    "aiBehavior",
+    "aiAudience",
+    "aiRestrictions",
+    "aiSalesScript",
+    "aiKnowledgeBase"
+  ];
+  var roleInput = document.getElementById("aiRole");
+  var roleLabel = document.querySelector('label[for="aiRole"]');
+  var note = document.querySelector(".ai-optional-note");
+
+  for (var i = 0; i < hiddenIds.length; i++) {
+    var field = document.getElementById(hiddenIds[i]);
+    if (field && field.closest(".ai-field")) {
+      field.closest(".ai-field").style.display = "none";
+    }
+  }
+
+  if (note) {
+    note.textContent = "Para configurar rapido, basta definir o nome do atendente, dizer o que a IA faz e jogar os arquivos. O resto vem do material importado.";
+  }
+
+  if (roleInput) {
+    roleInput.placeholder = "Ex.: vendedor, assistente de suporte, atendimento inicial";
+  }
+
+  if (roleLabel) {
+    roleLabel.textContent = "O que a IA faz";
+  }
+}
+
+function setAiContextFeedback(text, tone) {
+  var el = document.getElementById("aiContextFeedback");
+  el.textContent = text;
+  el.className = "ai-feedback" + (tone ? " " + tone : "");
+}
+
+function setAiImportFeedback(text, tone) {
+  var el = document.getElementById("aiImportFeedback");
+  el.textContent = text;
+  el.className = "ai-feedback" + (tone ? " " + tone : "");
+}
+
+function getAiStatusLabel(status) {
+  if (status === "ready" || status === "connected") return "Sessao pronta";
+  if (status === "authenticating" || status === "qr") return "Aguardando QR";
+  return "Sem sessao";
+}
+
+function toggleAiContextFields(disabled) {
+  var fields = document.querySelectorAll(".ai-config-field");
+  for (var i = 0; i < fields.length; i++) {
+    fields[i].disabled = disabled;
+  }
+}
+
+function renderAiPendingFiles() {
+  var el = document.getElementById("aiPendingFiles");
+  if (!aiPendingUploadFiles.length) {
+    el.innerHTML = "";
+    return;
+  }
+  el.innerHTML = aiPendingUploadFiles.map(function(file) {
+    return '<div class="ai-file-chip">' + esc(file.name) + ' <span>(' + Math.max(1, Math.round(file.size / 1024)) + ' KB)</span></div>';
+  }).join("");
+}
+
+function handleAiFilesSelected(fileList) {
+  aiPendingUploadFiles = Array.prototype.slice.call(fileList || []);
+  renderAiPendingFiles();
+  if (aiPendingUploadFiles.length) {
+    setAiImportFeedback(aiPendingUploadFiles.length + " arquivo(s) pronto(s) para importação.", "success");
+  } else {
+    setAiImportFeedback("Importe arquivos e deixe a IA montar o contexto sem precisar escrever tudo na mão.", "");
+  }
+}
+
+function setAiFieldValue(id, value) {
+  document.getElementById(id).value = value || "";
+}
+
+function ensureAiProfile() {
+  if (!aiContextState.profile) {
+    aiContextState.profile = buildEmptyAiProfile(aiContextState.account && aiContextState.account.phone);
+  }
+  if (!Array.isArray(aiContextState.profile.documents)) {
+    aiContextState.profile.documents = [];
+  }
+  return aiContextState.profile;
+}
+
+function hydrateAiContextForm() {
+  var account = aiContextState.account || {};
+  var profile = ensureAiProfile();
+  var connected = !!account.phone;
+
+  document.getElementById("aiContextHeaderStatus").textContent = connected ? formatPhoneDisplay(account.phone) : "Aguardando sessao";
+  document.getElementById("aiConnectedNumber").textContent = connected ? formatPhoneDisplay(account.phone) : "Sem sessao conectada";
+  document.getElementById("aiConnectedName").textContent = connected
+    ? ((account.name || "WhatsApp conectado") + " • " + getAiStatusLabel(account.status))
+    : "Conecte um WhatsApp para definir o comportamento da IA desta conta.";
+  document.getElementById("aiContextSessionStatus").textContent = getAiStatusLabel(account.status);
+
+  setAiFieldValue("aiProfileName", profile.profileName);
+  setAiFieldValue("aiAttendantName", profile.attendantName);
+  setAiFieldValue("aiCompanyName", profile.companyName);
+  setAiFieldValue("aiPersonaName", profile.aiName);
+  setAiFieldValue("aiRole", profile.aiRole);
+  setAiFieldValue("aiCompanyDescription", profile.companyDescription);
+  setAiFieldValue("aiObjectives", profile.objectives);
+  setAiFieldValue("aiTone", profile.toneOfVoice);
+  setAiFieldValue("aiBehavior", profile.behaviorGuidelines);
+  setAiFieldValue("aiAudience", profile.audienceProfile);
+  setAiFieldValue("aiRestrictions", profile.forbiddenTopics);
+  setAiFieldValue("aiSalesScript", profile.salesScript);
+  setAiFieldValue("aiKnowledgeBase", profile.knowledgeBase);
+
+  renderAiDocuments();
+  toggleAiContextFields(!connected);
+
+  if (connected) {
+    setAiContextFeedback("Edite o comportamento da IA desta sessao e clique em salvar. As proximas respostas ja passam a usar esse contexto.", "success");
+  } else {
+    setAiContextFeedback("Conecte um numero via QR Code para vincular este contexto a uma sessao especifica.", "");
+  }
+}
+
+function renderAiDocuments() {
+  var profile = ensureAiProfile();
+  var list = document.getElementById("aiDocumentsList");
+  var documents = profile.documents || [];
+
+  if (!documents.length) {
+    list.innerHTML = '<div class="ai-doc-card empty">Nenhum documento adicionado ainda. Use o botao acima para incluir textos, procedimentos, FAQs e materiais da empresa.</div>';
+    return;
+  }
+
+  list.innerHTML = documents.map(function(doc, index) {
+    return '<div class="ai-doc-card">' +
+      '<div class="ai-doc-top">' +
+        '<div class="ai-doc-title">Documento ' + (index + 1) + '</div>' +
+        '<button class="btn-danger-lite ai-config-field" onclick="removeAiDocument(' + index + ')">Remover</button>' +
+      '</div>' +
+      '<div class="ai-doc-grid">' +
+        '<div class="ai-field"><label>Titulo</label><input class="ai-input ai-config-field" value="' + esc(doc.title || "") + '" oninput="updateAiDocument(' + index + ', \'title\', this.value)"></div>' +
+        '<div class="ai-field"><label>Tipo</label><input class="ai-input ai-config-field" value="' + esc(doc.type || "texto") + '" oninput="updateAiDocument(' + index + ', \'type\', this.value)"></div>' +
+        '<div class="ai-field"><label>Fonte</label><input class="ai-input ai-config-field" value="' + esc(doc.source || "") + '" oninput="updateAiDocument(' + index + ', \'source\', this.value)"></div>' +
+      '</div>' +
+      '<div class="ai-field"><label>Conteudo</label><textarea class="ai-textarea ai-config-field" oninput="updateAiDocument(' + index + ', \'content\', this.value)">' + esc(doc.content || "") + '</textarea></div>' +
+    '</div>';
+  }).join("");
+
+  toggleAiContextFields(!(aiContextState.account && aiContextState.account.phone));
+}
+
+function addAiDocument() {
+  var profile = ensureAiProfile();
+  profile.documents.push({ title: "", type: "texto", source: "", content: "" });
+  renderAiDocuments();
+}
+
+function updateAiDocument(index, field, value) {
+  var profile = ensureAiProfile();
+  if (!profile.documents[index]) return;
+  profile.documents[index][field] = value;
+}
+
+function removeAiDocument(index) {
+  var profile = ensureAiProfile();
+  profile.documents.splice(index, 1);
+  renderAiDocuments();
+}
+
+function collectAiContextPayload() {
+  var profile = ensureAiProfile();
+  return {
+    attendantName: document.getElementById("aiAttendantName").value.trim(),
+    aiRole: document.getElementById("aiRole").value.trim(),
+    documents: (profile.documents || []).map(function(doc) {
+      return {
+        title: (doc.title || "").trim(),
+        type: (doc.type || "").trim(),
+        source: (doc.source || "").trim(),
+        content: (doc.content || "").trim(),
+      };
+    }).filter(function(doc) {
+      return doc.title || doc.content || doc.source;
+    }),
+    isActive: true,
+  };
+}
+
+async function loadAiContext() {
+  try {
+    var response = await fetch("/api/ai-context");
+    var data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || "Falha ao carregar contexto da IA.");
+    }
+
+    aiContextState.account = data.account || null;
+    aiContextState.profile = data.profile || buildEmptyAiProfile(data.account && data.account.phone);
+    hydrateAiContextForm();
+  } catch (error) {
+    setAiContextFeedback(error.message || "Falha ao carregar contexto da IA.", "error");
+  }
+}
+
+async function saveAiContext() {
+  if (!aiContextState.account || !aiContextState.account.phone) {
+    setAiContextFeedback("Conecte um WhatsApp por QR Code antes de salvar este contexto.", "error");
+    return;
+  }
+
+  var button = document.getElementById("btnSaveAiContext");
+  var originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = "Salvando...";
+
+  try {
+    var response = await fetch("/api/ai-context", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(collectAiContextPayload()),
+    });
+    var data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || "Falha ao salvar contexto da IA.");
+    }
+
+    aiContextState.account = data.account || aiContextState.account;
+    aiContextState.profile = data.profile || aiContextState.profile;
+    hydrateAiContextForm();
+    setAiContextFeedback("Contexto salvo. A IA desta sessao passa a usar essas informacoes nas proximas respostas.", "success");
+  } catch (error) {
+    setAiContextFeedback(error.message || "Falha ao salvar contexto da IA.", "error");
+  } finally {
+    button.disabled = false;
+    button.textContent = originalText;
+  }
+}
+
+async function importAiFiles() {
+  if (!aiContextState.account || !aiContextState.account.phone) {
+    setAiImportFeedback("Conecte um WhatsApp por QR Code antes de importar arquivos.", "error");
+    return;
+  }
+
+  if (!aiPendingUploadFiles.length) {
+    setAiImportFeedback("Selecione ou arraste ao menos um arquivo.", "error");
+    return;
+  }
+
+  var button = document.getElementById("btnImportAiFiles");
+  var originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = "Importando...";
+
+  try {
+    var formData = new FormData();
+    for (var i = 0; i < aiPendingUploadFiles.length; i++) {
+      formData.append("files", aiPendingUploadFiles[i]);
+    }
+
+    var response = await fetch("/api/ai-context/import", {
+      method: "POST",
+      body: formData,
+    });
+    var data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || "Falha ao importar arquivos.");
+    }
+
+    aiPendingUploadFiles = [];
+    document.getElementById("aiLazyFiles").value = "";
+    renderAiPendingFiles();
+    await loadAiContext();
+
+    var importedCount = data.imported ? data.imported.length : 0;
+    var skippedCount = data.skipped ? data.skipped.length : 0;
+    var message = importedCount + " arquivo(s) importado(s) para o contexto da IA.";
+    if (skippedCount) {
+      message += " " + skippedCount + " arquivo(s) foram ignorados.";
+    }
+    setAiImportFeedback(message, "success");
+  } catch (error) {
+    setAiImportFeedback(error.message || "Falha ao importar arquivos.", "error");
+  } finally {
+    button.disabled = false;
+    button.textContent = originalText;
+  }
+}
+
 // ── Select lead ──
+function setNotificationRoutesFeedback(text, tone) {
+  var el = document.getElementById("notificationRoutesFeedback");
+  el.textContent = text;
+  el.className = "ai-feedback" + (tone ? " " + tone : "");
+}
+
+function getNotificationRouteDescription(routeKey) {
+  if (routeKey === "handoff_leads") return "Grupo que recebe leads qualificados e repasses do bot.";
+  if (routeKey === "daily_report") return "Resumo diario automatico do que aconteceu.";
+  if (routeKey === "improvement_report") return "Analise automatica com melhorias e oportunidades.";
+  if (routeKey === "inactive_leads_alert") return "Alertas criticos para leads sem retorno apos certo tempo.";
+  return "Destino configuravel desta sessao.";
+}
+
+function toggleNotificationRouteFields(disabled) {
+  var fields = document.querySelectorAll(".route-config-field");
+  for (var i = 0; i < fields.length; i++) {
+    fields[i].disabled = disabled;
+  }
+}
+
+function updateNotificationRoute(index, field, value, targetName) {
+  if (!notificationRoutesState.routes[index]) return;
+  notificationRoutesState.routes[index][field] = value;
+  if (field === "targetId") {
+    notificationRoutesState.routes[index].targetName = value ? (targetName || "") : "";
+  }
+  if (field === "isEnabled") {
+    notificationRoutesState.routes[index].isEnabled = !!value;
+  }
+  renderNotificationRoutes();
+}
+
+function renderNotificationRoutes() {
+  var list = document.getElementById("notificationRoutesList");
+  var header = document.getElementById("routesHeaderStatus");
+  var account = aiContextState.account || {};
+  var connected = !!account.phone;
+  var groups = notificationRoutesState.groups || [];
+  var routes = notificationRoutesState.routes || [];
+
+  header.textContent = connected ? formatPhoneDisplay(account.phone) : "Aguardando sessao";
+
+  if (!routes.length) {
+    list.innerHTML = '<div class="ai-doc-card empty">Nenhuma rota configuravel encontrada para esta sessao.</div>';
+    toggleNotificationRouteFields(true);
+    return;
+  }
+
+  list.innerHTML = routes.map(function(route, index) {
+    var selectedId = route.targetId || "";
+    var groupOptions = ['<option value="">Nao enviar</option>'].concat(groups.map(function(group) {
+      var selected = group.id === selectedId ? " selected" : "";
+      return '<option value="' + esc(group.id) + '"' + selected + '>' + esc(group.name) + '</option>';
+    })).join("");
+    var checked = route.isEnabled ? " checked" : "";
+    var thresholdBlock = route.routeKey === "inactive_leads_alert"
+      ? '<div class="ai-field" style="max-width:160px"><label>Minutos</label><input class="ai-input route-config-field" type="number" min="1" value="' + esc(String(route.thresholdMinutes || 20)) + '" onchange="updateNotificationRoute(' + index + ', \'thresholdMinutes\', this.value)"></div>'
+      : "";
+    var disabledClass = route.isEnabled ? "" : " disabled";
+
+    return '<div class="route-card' + disabledClass + '">' +
+      '<div class="route-head">' +
+        '<div class="route-title">' + esc(route.routeLabel || route.routeKey) + '</div>' +
+        '<label class="route-toggle"><input class="route-config-field" type="checkbox"' + checked + ' onchange="updateNotificationRoute(' + index + ', \'isEnabled\', this.checked)"> Ativo</label>' +
+      '</div>' +
+      '<div class="route-copy">' + esc(getNotificationRouteDescription(route.routeKey)) + '</div>' +
+      '<div class="route-inline">' +
+        '<div class="ai-field"><label>Grupo</label><select class="ai-select route-config-field" onchange="updateNotificationRoute(' + index + ', \'targetId\', this.value, this.options[this.selectedIndex].text)">' + groupOptions + '</select></div>' +
+        thresholdBlock +
+      '</div>' +
+    '</div>';
+  }).join("");
+
+  toggleNotificationRouteFields(!connected);
+}
+
+async function loadNotificationRoutes() {
+  try {
+    var response = await fetch("/api/notification-routes");
+    var data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || "Falha ao carregar grupos e avisos.");
+    }
+
+    notificationRoutesState.groups = data.groups || [];
+    notificationRoutesState.routes = data.routes || [];
+    renderNotificationRoutes();
+
+    if (data.account && data.account.phone) {
+      setNotificationRoutesFeedback("Escolha em qual grupo cada tipo de aviso deve ser enviado.", "success");
+    } else {
+      setNotificationRoutesFeedback("Conecte um WhatsApp para configurar os grupos de destino.", "");
+    }
+  } catch (error) {
+    setNotificationRoutesFeedback(error.message || "Falha ao carregar grupos e avisos.", "error");
+  }
+}
+
+async function refreshWhatsAppGroups() {
+  await loadNotificationRoutes();
+}
+
+async function saveNotificationRoutesFront() {
+  if (!aiContextState.account || !aiContextState.account.phone) {
+    setNotificationRoutesFeedback("Conecte um WhatsApp por QR Code antes de salvar os grupos.", "error");
+    return;
+  }
+
+  var button = document.getElementById("btnSaveNotificationRoutes");
+  var originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = "Salvando...";
+
+  try {
+    var payloadRoutes = (notificationRoutesState.routes || []).map(function(route) {
+      return {
+        routeKey: route.routeKey,
+        routeLabel: route.routeLabel,
+        targetKind: "group",
+        targetId: route.targetId || "",
+        targetName: route.targetName || "",
+        isEnabled: route.isEnabled !== false,
+        thresholdMinutes: route.thresholdMinutes || null,
+      };
+    });
+
+    var response = await fetch("/api/notification-routes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ routes: payloadRoutes }),
+    });
+    var data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || "Falha ao salvar grupos e avisos.");
+    }
+
+    notificationRoutesState.groups = data.groups || [];
+    notificationRoutesState.routes = data.routes || [];
+    renderNotificationRoutes();
+    setNotificationRoutesFeedback("Grupos e avisos salvos para esta sessao.", "success");
+  } catch (error) {
+    setNotificationRoutesFeedback(error.message || "Falha ao salvar grupos e avisos.", "error");
+  } finally {
+    button.disabled = false;
+    button.textContent = originalText;
+  }
+}
+
 function selectLead(phone) {
   selectedPhone = phone;
   socket.emit("get-conversation", phone.includes("@c.us") ? phone : phone+"@c.us");
@@ -391,6 +1055,24 @@ socket.on("log", function(entry) {
   el.scrollTop = el.scrollHeight;
   socket.emit("get-leads");
 });
+
+var aiDropzone = document.getElementById("aiDropzone");
+if (aiDropzone) {
+  aiDropzone.addEventListener("dragover", function(event) {
+    event.preventDefault();
+    aiDropzone.classList.add("dragover");
+  });
+  aiDropzone.addEventListener("dragleave", function() {
+    aiDropzone.classList.remove("dragover");
+  });
+  aiDropzone.addEventListener("drop", function(event) {
+    event.preventDefault();
+    aiDropzone.classList.remove("dragover");
+    handleAiFilesSelected(event.dataTransfer && event.dataTransfer.files ? event.dataTransfer.files : []);
+  });
+}
+
+loadAiContext();
 </script>
 </body>
 </html>

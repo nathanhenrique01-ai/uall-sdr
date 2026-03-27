@@ -4,13 +4,19 @@ import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
+import multer from "multer";
 import path from "path";
 import fs from "fs";
+import os from "os";
 import { fileURLToPath } from "url";
 import { exec } from "child_process";
+import { PDFParse } from "pdf-parse";
+import mammoth from "mammoth";
+import XLSX from "xlsx";
+import WordExtractor from "word-extractor";
 import pkg from "whatsapp-web.js";
 var Client = pkg.Client;
-var LocalAuth = pkg.LocalAuth;
+var RemoteAuth = pkg.RemoteAuth;
 import QRCode from "qrcode";
 
 import { generateResponse, checkHumanRequest } from "./agent.js";
@@ -21,7 +27,12 @@ import {
 } from "./memory.js";
 import { HANDOFF_MESSAGE_TO_LEAD, HANDOFF_MESSAGE_TO_TEAM, AGENT_CONFIG } from "./config.js";
 import { startScheduledReports } from "./reports.js";
-import { initDb, closeDb, updateAccountInfo, getAccountInfo, saveSessionData, saveLog } from "./db.js";
+import { MariaDbAuthStore } from "./dbAuthStore.js";
+import {
+  initDb, closeDb, updateAccountInfo, getAccountInfo,
+  saveLog, getAiContextProfile, saveAiContextProfile, deleteRemoteAuthSession,
+  getNotificationRoutes, saveNotificationRoutes, getNotificationRoute,
+} from "./db.js";
 
 if (!process.env.OPENAI_API_KEY) {
   console.error("OPENAI_API_KEY nao configurada. Edite o arquivo .env");
@@ -85,18 +96,28 @@ function killPort(port) {
   });
 }
 
-var SESSION_DIR = path.join(__dirname, "data", "whatsapp-session");
-var CLEAN_FLAG = path.join(__dirname, "data", ".clean-session");
-if (fs.existsSync(CLEAN_FLAG)) {
-  try {
-    fs.rmSync(SESSION_DIR, { recursive: true, force: true });
-    fs.unlinkSync(CLEAN_FLAG);
-  } catch (e) {}
-}
+// ── Multiple WhatsApp Accounts ──
+var wppClients = {};  // { accountPhone: Client }
+var wppStatus = {};   // { accountPhone: "connected"|"qr"|"disconnected" }
+var wppStarting = {}; // { accountPhone: boolean }
+var wppRestartTimers = {}; // { accountPhone: timer }
+
+var WHATSAPP_RUNTIME_BASE = path.join(os.tmpdir(), "uall-sdr-wwebjs");
+var LEGACY_DATA_DIR = path.join(__dirname, "data");
+var LEGACY_WPP_SESSION_DIR = path.join(LEGACY_DATA_DIR, "whatsapp-session");
+var LEGACY_CONVERSATIONS_DIR = path.join(LEGACY_DATA_DIR, "conversations");
+var upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    files: 30,
+    fileSize: 20 * 1024 * 1024,
+  },
+});
 
 var app = express();
 var server = createServer(app);
 var io = new Server(server);
+var ioEmit = io.emit.bind(io);
 
 // Timers de follow-up (cobra lead apos 10 min sem resposta)
 var followUpTimers = {};
@@ -105,6 +126,13 @@ var closeTimers = {};
 
 // Cache de chats — salva o chat object quando recebe msg pra poder responder depois
 var chatCache = {};
+
+function persistLogEntry(entry, phoneOverride) {
+  if (!entry || !entry.text) return;
+  saveLog(entry.type || "info", entry.text, phoneOverride || entry.phone || null).catch(function(err) {
+    console.error("Falha ao salvar log no banco:", err.message);
+  });
+}
 
 // Função de logging que salva no banco e emite pro dashboard
 function emitLog(type, text, phone) {
@@ -116,6 +144,19 @@ function emitLog(type, text, phone) {
 }
 
 // Envia mensagem de forma segura — usa cache de chat pra evitar erro de LID
+emitLog = function(type, text, phone) {
+  var entry = { type: type, text: text, phone: phone || null };
+  ioEmit("log", entry);
+  persistLogEntry(entry, phone);
+};
+
+io.emit = function(eventName) {
+  if (eventName === "log") {
+    persistLogEntry(arguments[1]);
+  }
+  return ioEmit.apply(io, arguments);
+};
+
 async function safeSendMessage(wppClient, phone, text) {
   // 1. Tenta usar o chat cacheado (mais confiavel — pega o chat real do WhatsApp)
   if (chatCache[phone]) {
@@ -208,6 +249,281 @@ async function safeSendMessage(wppClient, phone, text) {
 
   throw new Error("Nao foi possivel enviar mensagem para " + phone + ". Contato pode ter formato LID incompativel. Tente responder diretamente pelo WhatsApp.");
 }
+
+function normalizePhoneNumber(phone) {
+  if (!phone) return null;
+  var digits = String(phone).replace(/[^0-9]/g, "");
+  return digits || null;
+}
+
+function normalizePossibleContactName(value) {
+  var normalized = value ? String(value).replace(/\s+/g, " ").trim() : "";
+  var digitsOnly = normalized.replace(/[^0-9]/g, "");
+  var alphaChars = normalized.replace(/[^A-Za-zÀ-ÿ]/g, "");
+  var invalidWords = [
+    "oi", "ola", "olá", "bom dia", "boa tarde", "boa noite",
+    "teste", "teste 123", "cliente", "lead", "whatsapp",
+    "sem nome", "nao informado", "não informado", "unknown"
+  ];
+
+  if (!normalized || normalized.length < 2 || normalized.length > 60) return null;
+  if (digitsOnly && digitsOnly === normalized.replace(/\D/g, "")) return null;
+  if (!alphaChars || alphaChars.length < 2) return null;
+  if (/[@#_*~|/\\]/.test(normalized)) return null;
+  if (/^\d+$/.test(normalized)) return null;
+  if (invalidWords.indexOf(normalized.toLowerCase()) !== -1) return null;
+  if (digitsOnly.length >= 6) return null;
+
+  return normalized;
+}
+
+function extractSmartContactName(contact, message) {
+  var candidates = [];
+  var bestName = null;
+
+  if (contact) {
+    candidates.push(contact.pushname);
+    candidates.push(contact.name);
+    candidates.push(contact.shortName);
+    candidates.push(contact.verifiedName);
+  }
+
+  if (message) {
+    candidates.push(message.notifyName);
+    candidates.push(message._data && message._data.notifyName);
+  }
+
+  for (var i = 0; i < candidates.length; i++) {
+    bestName = normalizePossibleContactName(candidates[i]);
+    if (bestName) return bestName;
+  }
+
+  return null;
+}
+
+function buildAiContextApiResponse(accountInfo, profile) {
+  var accountPhone = normalizePhoneNumber(accountInfo && accountInfo.phone);
+  return {
+    success: true,
+    account: {
+      name: accountInfo && accountInfo.name ? accountInfo.name : null,
+      phone: accountPhone,
+      status: state.whatsappStatus || (accountInfo && accountInfo.status) || "disconnected",
+      lastQrAt: accountInfo && accountInfo.lastQrAt ? accountInfo.lastQrAt : null,
+    },
+    profile: profile || {
+      accountPhone: accountPhone,
+      sessionKey: "default",
+      profileName: null,
+      attendantName: null,
+      companyName: null,
+      companyDescription: null,
+      aiName: null,
+      aiRole: null,
+      toneOfVoice: null,
+      behaviorGuidelines: null,
+      objectives: null,
+      audienceProfile: null,
+      forbiddenTopics: null,
+      salesScript: null,
+      knowledgeBase: null,
+      documents: [],
+      isActive: true,
+    },
+  };
+}
+
+function buildNotificationRoutesApiResponse(accountInfo, routes, groups) {
+  var accountPhone = normalizePhoneNumber(accountInfo && accountInfo.phone);
+  return {
+    success: true,
+    account: {
+      name: accountInfo && accountInfo.name ? accountInfo.name : null,
+      phone: accountPhone,
+      status: state.whatsappStatus || (accountInfo && accountInfo.status) || "disconnected",
+    },
+    routes: routes || [],
+    groups: groups || [],
+  };
+}
+
+async function getWhatsAppGroups(clientInstance) {
+  var activeClient = clientInstance || wpp;
+
+  if (!activeClient || state.whatsappStatus !== "connected") {
+    return [];
+  }
+
+  try {
+    var chats = await activeClient.getChats();
+    return chats
+      .filter(function(chat) {
+        return chat && chat.isGroup && chat.id && chat.id._serialized && chat.name;
+      })
+      .map(function(chat) {
+        return {
+          id: chat.id._serialized,
+          name: chat.name,
+        };
+      })
+      .sort(function(a, b) {
+        return a.name.localeCompare(b.name, "pt-BR");
+      });
+  } catch (err) {
+    console.error("Erro ao listar grupos do WhatsApp:", err.message);
+    return [];
+  }
+}
+
+async function resolveNotificationRoute(routeKey, clientInstance) {
+  var accountInfo = await getAccountInfo();
+  var accountPhone = normalizePhoneNumber(accountInfo && accountInfo.phone);
+  var route;
+
+  if (!accountPhone) {
+    return { route: null, targetId: null };
+  }
+
+  route = await getNotificationRoute(accountPhone, routeKey);
+  if (!route || !route.isEnabled) {
+    return { route: route, targetId: null };
+  }
+
+  if (route.targetId) {
+    return { route: route, targetId: route.targetId };
+  }
+
+  if (route.targetName) {
+    return {
+      route: route,
+      targetId: await findGroupByName(route.targetName, clientInstance),
+    };
+  }
+
+  return { route: route, targetId: null };
+}
+
+async function cleanupLegacyWorkspaceStorage() {
+  try {
+    await fs.promises.rm(LEGACY_WPP_SESSION_DIR, { recursive: true, force: true });
+  } catch (e) {}
+
+  try {
+    await fs.promises.rm(LEGACY_CONVERSATIONS_DIR, { recursive: true, force: true });
+  } catch (e) {}
+}
+
+function truncateContextText(text, maxChars) {
+  var normalized = text ? String(text).trim() : "";
+  if (!normalized) return "";
+  if (normalized.length <= maxChars) return normalized;
+  return normalized.slice(0, maxChars) + "\n[conteudo truncado automaticamente]";
+}
+
+async function extractTextFromDocBuffer(buffer, extension) {
+  var tempPath = path.join(os.tmpdir(), "uall-import-" + Date.now() + "-" + Math.random().toString(36).slice(2) + extension);
+  try {
+    await fs.promises.writeFile(tempPath, buffer);
+    var extractor = new WordExtractor();
+    var extracted = await extractor.extract(tempPath);
+    return extracted && typeof extracted.getBody === "function" ? extracted.getBody() : "";
+  } finally {
+    try { await fs.promises.unlink(tempPath); } catch (e) {}
+  }
+}
+
+async function extractTextFromUploadedFile(file) {
+  var extension = path.extname(file.originalname || "").toLowerCase();
+  var buffer = file.buffer;
+
+  if (!buffer || !buffer.length) {
+    throw new Error("arquivo vazio");
+  }
+
+  if ([".txt", ".md", ".markdown", ".csv", ".json"].indexOf(extension) !== -1) {
+    return buffer.toString("utf8");
+  }
+
+  if (extension === ".pdf") {
+    var parser = new PDFParse({ data: buffer });
+    try {
+      var pdf = await parser.getText();
+      return pdf && pdf.text ? pdf.text : "";
+    } finally {
+      await parser.destroy().catch(function() {});
+    }
+  }
+
+  if (extension === ".docx") {
+    var docx = await mammoth.extractRawText({ buffer: buffer });
+    return docx && docx.value ? docx.value : "";
+  }
+
+  if (extension === ".doc") {
+    return await extractTextFromDocBuffer(buffer, extension);
+  }
+
+  if (extension === ".xlsx" || extension === ".xls") {
+    var workbook = XLSX.read(buffer, { type: "buffer" });
+    var parts = [];
+    for (var i = 0; i < workbook.SheetNames.length; i++) {
+      var sheetName = workbook.SheetNames[i];
+      var sheet = workbook.Sheets[sheetName];
+      var csv = XLSX.utils.sheet_to_csv(sheet);
+      if (csv && csv.trim()) {
+        parts.push("Planilha: " + sheetName + "\n" + csv.trim());
+      }
+    }
+    return parts.join("\n\n");
+  }
+
+  throw new Error("tipo de arquivo nao suportado");
+}
+
+async function importAiContextFilesToProfile(accountPhone, files) {
+  var currentProfile = await getAiContextProfile(accountPhone, "default");
+  var existingDocuments = Array.isArray(currentProfile.documents) ? currentProfile.documents.slice() : [];
+  var imported = [];
+  var skipped = [];
+
+  for (var i = 0; i < files.length; i++) {
+    var file = files[i];
+    try {
+      var extractedText = await extractTextFromUploadedFile(file);
+      var trimmedText = truncateContextText(extractedText, 120000);
+
+      if (!trimmedText) {
+        skipped.push({ fileName: file.originalname, reason: "arquivo sem texto aproveitavel" });
+        continue;
+      }
+
+      imported.push({
+        title: file.originalname,
+        type: "arquivo_importado",
+        source: "upload:" + file.originalname,
+        content: trimmedText,
+      });
+    } catch (err) {
+      skipped.push({ fileName: file.originalname, reason: err.message });
+    }
+  }
+
+  var profileToSave = Object.assign({}, currentProfile, {
+    accountPhone: accountPhone,
+    sessionKey: "default",
+    documents: existingDocuments.concat(imported).slice(-50),
+    isActive: true,
+  });
+
+  var savedProfile = await saveAiContextProfile(profileToSave);
+  return {
+    profile: savedProfile,
+    imported: imported.map(function(doc) { return doc.title; }),
+    skipped: skipped,
+  };
+}
+
+app.use(express.json({ limit: "10mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
 var state = {
@@ -233,11 +549,216 @@ async function broadcastUpdate() {
 }
 
 // ── Socket.io ──
+app.get("/api/ai-context", async function(req, res) {
+  try {
+    var accountInfo = await getAccountInfo();
+    var accountPhone = normalizePhoneNumber(accountInfo && accountInfo.phone);
+    var profile = accountPhone ? await getAiContextProfile(accountPhone, "default") : null;
+    res.json(buildAiContextApiResponse(accountInfo, profile));
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: "Nao foi possivel carregar o contexto da IA.",
+      details: err.message,
+    });
+  }
+});
+
+app.post("/api/ai-context", async function(req, res) {
+  try {
+    var accountInfo = await getAccountInfo();
+    var accountPhone = normalizePhoneNumber(accountInfo && accountInfo.phone);
+
+    if (!accountPhone) {
+      return res.status(400).json({
+        success: false,
+        error: "Conecte um WhatsApp por QR Code antes de salvar o contexto desta sessao.",
+      });
+    }
+
+    var profile = await saveAiContextProfile(Object.assign({}, req.body || {}, {
+      accountPhone: accountPhone,
+      sessionKey: "default",
+    }));
+
+    res.json(buildAiContextApiResponse(accountInfo, profile));
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: "Nao foi possivel salvar o contexto da IA.",
+      details: err.message,
+    });
+  }
+});
+
+app.post("/api/ai-context/import", upload.array("files", 30), async function(req, res) {
+  try {
+    var accountInfo = await getAccountInfo();
+    var accountPhone = normalizePhoneNumber(accountInfo && accountInfo.phone);
+    var files = req.files || [];
+
+    if (!accountPhone) {
+      return res.status(400).json({
+        success: false,
+        error: "Conecte um WhatsApp por QR Code antes de importar arquivos.",
+      });
+    }
+
+    if (!files.length) {
+      return res.status(400).json({
+        success: false,
+        error: "Nenhum arquivo enviado.",
+      });
+    }
+
+    var importResult = await importAiContextFilesToProfile(accountPhone, files);
+    res.json({
+      success: true,
+      account: {
+        name: accountInfo && accountInfo.name ? accountInfo.name : null,
+        phone: accountPhone,
+        status: state.whatsappStatus || (accountInfo && accountInfo.status) || "disconnected",
+      },
+      profile: importResult.profile,
+      imported: importResult.imported,
+      skipped: importResult.skipped,
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: "Nao foi possivel importar os arquivos para o contexto da IA.",
+      details: err.message,
+    });
+  }
+});
+
+app.get("/api/whatsapp/groups", async function(req, res) {
+  try {
+    var groups = await getWhatsAppGroups();
+    res.json({
+      success: true,
+      groups: groups,
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: "Nao foi possivel listar os grupos do WhatsApp.",
+      details: err.message,
+    });
+  }
+});
+
+app.get("/api/notification-routes", async function(req, res) {
+  try {
+    var accountInfo = await getAccountInfo();
+    var accountPhone = normalizePhoneNumber(accountInfo && accountInfo.phone);
+    var routes = await getNotificationRoutes(accountPhone);
+    var groups = await getWhatsAppGroups();
+    res.json(buildNotificationRoutesApiResponse(accountInfo, routes, groups));
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: "Nao foi possivel carregar os grupos e avisos.",
+      details: err.message,
+    });
+  }
+});
+
+app.post("/api/notification-routes", async function(req, res) {
+  try {
+    var accountInfo = await getAccountInfo();
+    var accountPhone = normalizePhoneNumber(accountInfo && accountInfo.phone);
+
+    if (!accountPhone) {
+      return res.status(400).json({
+        success: false,
+        error: "Conecte um WhatsApp por QR Code antes de salvar os grupos e avisos.",
+      });
+    }
+
+    var routes = await saveNotificationRoutes(accountPhone, req.body && req.body.routes);
+    var groups = await getWhatsAppGroups();
+    res.json(buildNotificationRoutesApiResponse(accountInfo, routes, groups));
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: "Nao foi possivel salvar os grupos e avisos.",
+      details: err.message,
+    });
+  }
+});
+
+// ── ROTAS DE GERENCIAMENTO DE CONTAS ──
+
+app.get("/api/accounts", async function(req, res) {
+  try {
+    var { getAllAccounts } = await import("./db.js");
+    var accounts = await getAllAccounts();
+    // Adiciona status em tempo real
+    var result = accounts.map(function(acc) {
+      return {
+        ...acc,
+        liveStatus: wppStatus[acc.phone] || "disconnected"
+      };
+    });
+    res.json({ success: true, accounts: result });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: "Erro ao listar contas.",
+      details: err.message
+    });
+  }
+});
+
+app.post("/api/accounts/new-qr", async function(req, res) {
+  try {
+    var accountPhone = req.body && req.body.accountPhone;
+    if (!accountPhone) {
+      return res.status(400).json({
+        success: false,
+        error: "accountPhone é obrigatório"
+      });
+    }
+    var normalized = normalizePhoneNumber(accountPhone);
+    await startWhatsAppClient(normalized, true);
+    res.json({ success: true, message: "Novo QR Code gerado para " + normalized });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: "Erro ao gerar novo QR Code.",
+      details: err.message
+    });
+  }
+});
+
+app.post("/api/accounts/:accountPhone/disconnect", async function(req, res) {
+  try {
+    var accountPhone = normalizePhoneNumber(req.params.accountPhone);
+    await stopWhatsAppClient(accountPhone);
+    res.json({ success: true, message: "Conta desconectada: " + accountPhone });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: "Erro ao desconectar conta.",
+      details: err.message
+    });
+  }
+});
+
 io.on("connection", function(socket) {
   console.log("Dashboard conectado");
+  // Inicia com primeira conta conectada
+  var firstAccount = Object.keys(wppClients)[0];
+  socket.selectedAccount = firstAccount;
+
   refreshStats();
-  socket.emit("status", state.whatsappStatus);
-  if (state.qrDataUrl) socket.emit("qr", state.qrDataUrl);
+  socket.emit("accounts", Object.keys(wppClients));
+  socket.emit("selectedAccount", socket.selectedAccount);
+  socket.emit("status", wppStatus[socket.selectedAccount] || "disconnected");
+  if (state.qrDataUrl && state.qrAccountPhone === socket.selectedAccount) {
+    socket.emit("qr", state.qrDataUrl);
+  }
   socket.emit("stats", state.stats);
   listAllLeads().then(function(l) { socket.emit("leads", l); });
 
@@ -314,31 +835,99 @@ io.on("connection", function(socket) {
     }
   });
 
-  // ── WhatsApp reconexao ──
-  socket.on("reconnect-whatsapp", function() {
-    startWhatsApp();
+  // ── Selecionar Conta ──
+  socket.on("select-account", function(accountPhone) {
+    socket.selectedAccount = accountPhone;
+    socket.emit("selectedAccount", accountPhone);
+    socket.emit("status", wppStatus[accountPhone] || "disconnected");
+    if (state.qrDataUrl && state.qrAccountPhone === accountPhone) {
+      socket.emit("qr", state.qrDataUrl);
+    }
+    socket.emit("stats", state.stats);
+    listAllLeads().then(function(l) { socket.emit("leads", l); });
   });
 
-  socket.on("reset-session", function() {
-    try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch (e) {}
-    startWhatsApp();
+  // ── WhatsApp reconexao ──
+  socket.on("reconnect-whatsapp", function(accountPhone) {
+    if (!accountPhone && socket.selectedAccount) {
+      accountPhone = socket.selectedAccount;
+    }
+    if (accountPhone) {
+      startWhatsAppClient(normalizePhoneNumber(accountPhone), false);
+    }
+  });
+
+  socket.on("reset-session", function(accountPhone) {
+    if (!accountPhone && socket.selectedAccount) {
+      accountPhone = socket.selectedAccount;
+    }
+    if (accountPhone) {
+      startWhatsAppClient(normalizePhoneNumber(accountPhone), true);
+    }
   });
 });
 
 // ── WhatsApp ──
-var wpp = null;
 
-function startWhatsApp() {
-  if (wpp) {
-    try { wpp.destroy(); } catch (e) {}
-    wpp = null;
-  }
+async function clearWhatsAppRuntime(accountPhone) {
+  try {
+    var runtimeDir = path.join(WHATSAPP_RUNTIME_BASE, normalizePhoneNumber(accountPhone));
+    await fs.promises.rm(runtimeDir, { recursive: true, force: true });
+  } catch (e) {}
+}
 
-  state.whatsappStatus = "disconnected";
-  io.emit("status", "disconnected");
+async function clearWhatsAppSession(accountPhone) {
+  var normalizedPhone = normalizePhoneNumber(accountPhone);
+  try {
+    await deleteRemoteAuthSession("RemoteAuth-" + normalizedPhone);
+  } catch (e) {}
+  await clearWhatsAppRuntime(accountPhone);
+  await cleanupLegacyWorkspaceStorage();
+}
 
-  wpp = new Client({
-    authStrategy: new LocalAuth({ dataPath: "./data/whatsapp-session" }),
+function scheduleWhatsAppRestart(accountPhone, delayMs) {
+  if (wppRestartTimers[accountPhone]) return;
+  wppRestartTimers[accountPhone] = setTimeout(function() {
+    delete wppRestartTimers[accountPhone];
+    startWhatsAppClient(normalizePhoneNumber(accountPhone), false);
+  }, delayMs);
+}
+
+async function startWhatsAppClient(accountPhone, resetSession) {
+  var normalizedPhone = normalizePhoneNumber(accountPhone);
+  if (wppStarting[normalizedPhone]) return;
+  wppStarting[normalizedPhone] = true;
+
+  try {
+    if (wppRestartTimers[normalizedPhone]) {
+      clearTimeout(wppRestartTimers[normalizedPhone]);
+      delete wppRestartTimers[normalizedPhone];
+    }
+
+    if (wppClients[normalizedPhone]) {
+      try { await wppClients[normalizedPhone].destroy(); } catch (e) {}
+      delete wppClients[normalizedPhone];
+    }
+
+    if (resetSession) {
+      await clearWhatsAppSession(normalizedPhone);
+    }
+
+    wppStatus[normalizedPhone] = "disconnected";
+    state.qrDataUrl = null;
+    state.qrAccountPhone = normalizedPhone;
+    io.emit("status", "disconnected");
+
+    var runtimeDir = path.join(WHATSAPP_RUNTIME_BASE, normalizedPhone);
+    var clientId = normalizedPhone;
+
+    wppClients[normalizedPhone] = new Client({
+      authStrategy: new RemoteAuth({
+        clientId: clientId,
+        store: new MariaDbAuthStore(),
+        dataPath: runtimeDir,
+        backupSyncIntervalMs: 60000,
+      }),
     puppeteer: {
       headless: true,
       args: [
@@ -354,69 +943,54 @@ function startWhatsApp() {
     },
   });
 
-  wpp.on("qr", async function(qr) {
-    console.log("QR Code gerado");
-    state.whatsappStatus = "qr";
-    state.qrDataUrl = await QRCode.toDataURL(qr, { width: 280, margin: 2 });
+    var clientInstance = wppClients[normalizedPhone];
 
-    // Salva o QR code no banco
-    try {
-      await updateAccountInfo({
-        qrCode: qr,
-        status: 'authenticating'
-      });
-    } catch (e) {
-      console.error("Erro ao salvar QR code:", e.message);
-    }
+    clientInstance.on("qr", async function(qr) {
+      console.log("QR Code gerado para " + normalizedPhone);
+      wppStatus[normalizedPhone] = "qr";
+      state.qrDataUrl = await QRCode.toDataURL(qr, { width: 280, margin: 2 });
+      state.qrAccountPhone = normalizedPhone;
 
-    io.emit("status", "qr");
-    io.emit("qr", state.qrDataUrl);
-  });
-
-  wpp.on("authenticated", function() { console.log("WhatsApp autenticado"); });
-
-  wpp.on("ready", async function() {
-    console.log("WhatsApp ONLINE");
-    state.whatsappStatus = "connected";
-    state.qrDataUrl = null;
-
-    // Salva dados da sessao WhatsApp no banco
-    try {
-      var sessionDir = path.join(__dirname, "data", "whatsapp-session");
-      if (fs.existsSync(sessionDir)) {
-        var sessionFiles = fs.readdirSync(sessionDir);
-        var sessionData = {};
-        for (var i = 0; i < sessionFiles.length; i++) {
-          var file = sessionFiles[i];
-          if (file.endsWith(".json")) {
-            var filePath = path.join(sessionDir, file);
-            try {
-              var content = fs.readFileSync(filePath, "utf-8");
-              sessionData[file] = JSON.parse(content);
-            } catch (e) {
-              sessionData[file] = content; // se nao for JSON, salva como string
-            }
-          }
-        }
-        if (Object.keys(sessionData).length > 0) {
-          await saveSessionData("default", sessionData, null);
-          console.log("✅ Dados da sessao WhatsApp salvos no banco");
-        }
+      // Salva o QR code no banco
+      try {
+        await updateAccountInfo({
+          phone: normalizedPhone,
+          qrCode: qr,
+          status: 'authenticating'
+        });
+      } catch (e) {
+        console.error("Erro ao salvar QR code:", e.message);
       }
-    } catch (e) {
-      console.error("Erro ao salvar session data:", e.message);
-    }
+
+      io.emit("status", "qr");
+      io.emit("qr", state.qrDataUrl);
+    });
+
+    clientInstance.on("authenticated", function() { console.log("WhatsApp autenticado para " + normalizedPhone); });
+
+  clientInstance.on("ready", async function() {
+    console.log("WhatsApp ONLINE para " + normalizedPhone);
+    wppStatus[normalizedPhone] = "connected";
+    state.qrDataUrl = null;
+    var connectedPhone = null;
+    var connectedName = "WhatsApp";
+
+    try {
+      var me = await clientInstance.getContactById(clientInstance.info.wid._serialized);
+      connectedName = me && me.name ? me.name : connectedName;
+      connectedPhone = me && me.number ? me.number : null;
+    } catch (e) {}
+
+    // A sessao do WhatsApp agora e persistida diretamente no MariaDB via RemoteAuth.
 
     // Salva informacoes da conta no banco
     try {
-      var info = await wpp.getWWebVersion();
-      var me = await wpp.getContactById(wpp.info.wid._serialized);
       await updateAccountInfo({
-        name: me && me.name ? me.name : "WhatsApp",
-        phone: me && me.number ? me.number : null,
+        name: connectedName,
+        phone: connectedPhone,
         status: 'ready'
       });
-      console.log("✅ Informacoes da conta salvas no banco");
+      console.log("✅ Informacoes da conta salvas no banco para " + normalizedPhone);
     } catch (e) {
       console.error("Erro ao salvar account info:", e.message);
       try {
@@ -428,14 +1002,11 @@ function startWhatsApp() {
     broadcastUpdate();
   });
 
-  wpp.on("auth_failure", function() {
-    state.whatsappStatus = "disconnected";
+  clientInstance.on("auth_failure", async function() {
+    wppStatus[normalizedPhone] = "disconnected";
     io.emit("status", "disconnected");
-    emitLog("error", "Falha na autenticacao. Clique em 'Resetar Sessao'."));
-    try {
-      fs.mkdirSync(path.join(__dirname, "data"), { recursive: true });
-      fs.writeFileSync(CLEAN_FLAG, "1");
-    } catch (e) {}
+    await clearWhatsAppSession(normalizedPhone);
+    emitLog("error", "Falha na autenticacao para " + normalizedPhone + ". Clique em 'Resetar Sessao'.");
   });
 
   wpp.on("disconnected", async function(reason) {
@@ -449,11 +1020,11 @@ function startWhatsApp() {
 
     io.emit("status", "disconnected");
     if (reason === "LOGOUT") {
-      emitLog("error", "WhatsApp deslogado. Clique em 'Reconectar'."));
-      try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch (e) {}
+      await clearWhatsAppSession();
+      emitLog("error", "WhatsApp deslogado. Clique em 'Reconectar'.");
     } else {
-      emitLog("info", "Conexao perdida. Reconectando em 10s..."));
-      setTimeout(function() { startWhatsApp(); }, 10000);
+      emitLog("info", "Conexao perdida. Reconectando em 10s...");
+      scheduleWhatsAppRestart(10000);
     }
   });
 
@@ -469,6 +1040,7 @@ function startWhatsApp() {
 
       var phone = message.from;
       var contactNumber = null;
+      var smartContactName = null;
 
       // Busca o numero real do contato ANTES de tudo (pra normalizar a chave)
       try {
@@ -479,6 +1051,7 @@ function startWhatsApp() {
           // Isso evita criar multiplos registros pra mesma pessoa
           phone = contactNumber + "@c.us";
         }
+        smartContactName = extractSmartContactName(contact, message);
       } catch (e) {}
 
       // Cacheia o chat pra poder responder depois (evita erro de LID)
@@ -513,6 +1086,9 @@ function startWhatsApp() {
       // Salva o numero real do contato (diferente do ID interno do WhatsApp)
       if (contactNumber && !conv.contactNumber) {
         conv.contactNumber = contactNumber;
+      }
+      if (smartContactName && !normalizePossibleContactName(conv.name)) {
+        conv.name = smartContactName;
       }
 
       // ── AUTO-SAVE: Salva o lead no banco imediatamente na primeira mensagem ──
@@ -667,7 +1243,14 @@ function startWhatsApp() {
         for (var k = 0; k < keys.length; k++) {
           var key = keys[k];
           if (result.leadData[key] && !conv[key]) {
-            conv[key] = result.leadData[key];
+            if (key === "name") {
+              var extractedName = normalizePossibleContactName(result.leadData[key]);
+              if (extractedName) {
+                conv[key] = extractedName;
+              }
+            } else {
+              conv[key] = result.leadData[key];
+            }
           }
         }
       }
@@ -746,20 +1329,41 @@ function startWhatsApp() {
   });
 
   console.log("Inicializando WhatsApp...");
-  wpp.initialize().catch(function(err) {
+  try {
+    await wpp.initialize();
+  } catch (err) {
     console.error("Erro ao inicializar WhatsApp:", err.message);
     io.emit("status", "disconnected");
     io.emit("log", { type: "error", text: "Erro ao iniciar: " + err.message + ". Clique em 'Reconectar'." });
-  });
+    scheduleWhatsAppRestart(5000);
+  } finally {
+    whatsappStarting = false;
+  }
 }
 
-async function findGroupByName(name) {
+async function findGroupByName(name, clientInstance) {
+  var activeClient = clientInstance || wpp;
+  var normalizedName;
+
+  if (!activeClient || !name) {
+    return null;
+  }
+
   try {
-    var chats = await wpp.getChats();
+    var chats = await activeClient.getChats();
+    normalizedName = String(name).trim().toLowerCase();
+
     for (var i = 0; i < chats.length; i++) {
-      if (chats[i].isGroup && chats[i].name && chats[i].name.toLowerCase().includes(name.toLowerCase())) {
+      if (chats[i].isGroup && chats[i].name && chats[i].name.toLowerCase() === normalizedName) {
         console.log("Grupo encontrado: " + chats[i].name + " (" + chats[i].id._serialized + ")");
         return chats[i].id._serialized;
+      }
+    }
+
+    for (var j = 0; j < chats.length; j++) {
+      if (chats[j].isGroup && chats[j].name && chats[j].name.toLowerCase().includes(normalizedName)) {
+        console.log("Grupo encontrado: " + chats[j].name + " (" + chats[j].id._serialized + ")");
+        return chats[j].id._serialized;
       }
     }
   } catch (err) {
@@ -768,10 +1372,9 @@ async function findGroupByName(name) {
   return null;
 }
 
-async function doHandoff(phone, conv, leadData) {
-  var handoffName = process.env.HANDOFF_NAME || "nosso time comercial";
-  var notifyNumber = process.env.HANDOFF_NOTIFY_NUMBER;
-  var groupName = process.env.HANDOFF_GROUP_NAME || "LEADS";
+async function doHandoffLegacy(phone, conv, leadData) {
+  var resolvedRoute;
+  var teamMsg;
 
   markHandedOff(conv, leadData);
   await saveConversation(phone, conv);
@@ -784,7 +1387,12 @@ async function doHandoff(phone, conv, leadData) {
     text: "[" + ts + "] 🔔 HANDOFF: " + phone.replace("@c.us", "") + " - " + (leadData.handoffReason || "qualificado") + " - " + (leadData.name || "sem nome"),
   });
 
-  var teamMsg = HANDOFF_MESSAGE_TO_TEAM(Object.assign({}, leadData, { phone: phone, contactNumber: leadData.contactNumber || conv.contactNumber || null }));
+  resolvedRoute = await resolveNotificationRoute("handoff_leads", wpp);
+  teamMsg = HANDOFF_MESSAGE_TO_TEAM(Object.assign({}, leadData, {
+    phone: phone,
+    contactNumber: leadData.contactNumber || conv.contactNumber || null,
+    destinationLabel: resolvedRoute && resolvedRoute.route ? resolvedRoute.route.routeLabel : null,
+  }));
 
   // Envia para o grupo de leads
   try {
@@ -815,6 +1423,50 @@ async function doHandoff(phone, conv, leadData) {
   broadcastUpdate();
 }
 
+async function doHandoff(phone, conv, leadData) {
+  var ts = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  var resolvedRoute;
+  var teamMsg;
+  var safeLeadName;
+
+  safeLeadName = normalizePossibleContactName(leadData && leadData.name) || normalizePossibleContactName(conv && conv.name) || null;
+  leadData = Object.assign({}, leadData, {
+    name: safeLeadName,
+  });
+
+  markHandedOff(conv, leadData);
+  await saveConversation(phone, conv);
+
+  io.emit("log", {
+    type: "handoff",
+    text: "[" + ts + "] 🔔 HANDOFF: " + phone.replace("@c.us", "") + " - " + (leadData.handoffReason || "qualificado") + " - " + (leadData.name || "sem nome"),
+  });
+
+  resolvedRoute = await resolveNotificationRoute("handoff_leads", wpp);
+  teamMsg = HANDOFF_MESSAGE_TO_TEAM(Object.assign({}, leadData, {
+    phone: phone,
+    contactNumber: leadData.contactNumber || conv.contactNumber || null,
+    destinationLabel: resolvedRoute && resolvedRoute.route ? resolvedRoute.route.routeLabel : null,
+  }));
+
+  try {
+    if (resolvedRoute && resolvedRoute.targetId) {
+      await safeSendMessage(wpp, resolvedRoute.targetId, teamMsg);
+      io.emit("log", { type: "info", text: "[" + ts + "] ✅ Resumo enviado para o grupo configurado no painel" });
+    } else {
+      io.emit("log", {
+        type: "error",
+        text: "[" + ts + "] ⚠️ Nenhum grupo configurado para leads qualificados. Ajuste em 'Grupos e avisos' no painel.",
+      });
+    }
+  } catch (err) {
+    console.error("Erro ao enviar para grupo:", err.message);
+    io.emit("log", { type: "error", text: "[" + ts + "] Erro ao enviar para grupo: " + err.message });
+  }
+
+  broadcastUpdate();
+}
+
 function openBrowser(url) {
   var cmd;
   switch (process.platform) {
@@ -839,6 +1491,8 @@ process.on("unhandledRejection", function(err) {
 killPort(PORT).then(function() {
   return initDb();
 }).then(function() {
+  return cleanupLegacyWorkspaceStorage();
+}).then(function() {
 server.listen(PORT, function() {
   var url = "http://localhost:" + PORT;
   console.log("");
@@ -849,21 +1503,12 @@ server.listen(PORT, function() {
   console.log("========================================");
   console.log("");
   openBrowser(url);
-  startWhatsApp();
+  startWhatsApp(false);
 
-  // Agenda relatorios diarios no grupo
-  var cachedGroupId = null;
   startScheduledReports(
     function() { return wpp; },
-    async function(wppInstance) {
-      if (cachedGroupId) return cachedGroupId;
-      var groupName = process.env.HANDOFF_GROUP_NAME || "LEADS";
-      var groupId = process.env.HANDOFF_GROUP_ID;
-      if (!groupId) {
-        groupId = await findGroupByName(groupName);
-      }
-      if (groupId) cachedGroupId = groupId;
-      return groupId;
+    async function(routeKey, wppInstance) {
+      return await resolveNotificationRoute(routeKey, wppInstance);
     },
     io
   );
